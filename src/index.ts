@@ -62,13 +62,20 @@ admin.get("/currencies/rates", async (c) => {
 
   try {
     const authHeader = c.req.header("Authorization") ?? ""
-    const res = await fetch(`${walletsUrl}/admin/fx-rates?${params}`, {
+    const res = await fetch(`${walletsUrl}/api/admin/fx-rates?${params}`, {
       headers: { Authorization: authHeader },
       signal: AbortSignal.timeout(5000),
     })
-    const body = await res.json()
+    const text = await res.text()
+    let body: unknown
+    try {
+      body = JSON.parse(text)
+    } catch {
+      body = { error: text }
+    }
     return c.json(body, res.status as any)
-  } catch {
+  } catch (error) {
+    console.error("FX-rates proxy failed:", error)
     return c.json({ error: "Upstream unavailable" }, 502)
   }
 })
@@ -86,13 +93,20 @@ admin.get("/users", async (c) => {
 
   try {
     const authHeader = c.req.header("Authorization") ?? ""
-    const listRes = await fetch(`${usersAuthUrl}/admin/list?${params}`, {
+    const listRes = await fetch(`${usersAuthUrl}/api/users/admin/list?${params}`, {
       headers: { Authorization: authHeader },
       signal: AbortSignal.timeout(5000),
     })
-    const listBody = await listRes.json() as {
+    const listText = await listRes.text()
+    let listBody: {
       items: Array<{ userId: string; createdAt: string; updatedAt: string }>
       pagination: { total: number; page: number; per_page: number; total_pages: number }
+    }
+    try {
+      listBody = JSON.parse(listText)
+    } catch {
+      console.error("users-auth admin/list returned non-JSON:", listRes.status, listText.slice(0, 200))
+      return c.json({ error: "Upstream error" }, 502)
     }
 
     // Attempt OIDC enrichment (best-effort — skip if not configured)
@@ -151,7 +165,8 @@ admin.get("/users", async (c) => {
     }
 
     return c.json({ items: enrichedItems, pagination: listBody.pagination })
-  } catch {
+  } catch (error) {
+    console.error("users proxy failed:", error)
     return c.json({ error: "Upstream unavailable" }, 502)
   }
 })

@@ -21,6 +21,59 @@ describe("GET /__meta", () => {
   })
 })
 
+describe("Admin proxies hit module /api-prefixed routes", () => {
+  const adminHeaders = {
+    "X-User-Id": "admin-1",
+    "X-User-Email": "admin@example.com",
+    "X-User-Groups": "portfoliost_admin",
+  }
+
+  it("proxies currencies/rates to wallets /api/admin/fx-rates", async () => {
+    process.env.API_WALLETS_URL = "http://wallets:3000"
+    delete process.env.API_USERS_AUTH_URL
+    const seen: string[] = []
+    const origFetch = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+      seen.push(url)
+      return new Response(JSON.stringify({ items: [], pagination: { total: 0, page: 1, per_page: 50, total_pages: 0 } }), {
+        headers: { "content-type": "application/json" },
+      })
+    }) as typeof fetch
+    try {
+      const res = await app.request("/api/admin/currencies/rates?page=2", { headers: adminHeaders })
+      expect(res.status).toBe(200)
+      expect(seen[0]).toBe("http://wallets:3000/api/admin/fx-rates?page=2")
+    } finally {
+      globalThis.fetch = origFetch
+      delete process.env.API_WALLETS_URL
+    }
+  })
+
+  it("proxies users to users-auth /api/users/admin/list", async () => {
+    process.env.API_USERS_AUTH_URL = "http://users-auth:3000"
+    delete process.env.API_WALLETS_URL
+    delete process.env.OIDC_ISSUER_URL
+    const seen: string[] = []
+    const origFetch = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+      seen.push(url)
+      return new Response(JSON.stringify({ items: [], pagination: { total: 0, page: 1, per_page: 50, total_pages: 0 } }), {
+        headers: { "content-type": "application/json" },
+      })
+    }) as typeof fetch
+    try {
+      const res = await app.request("/api/admin/users", { headers: adminHeaders })
+      expect(res.status).toBe(200)
+      expect(seen[0]).toBe("http://users-auth:3000/api/users/admin/list?")
+    } finally {
+      globalThis.fetch = origFetch
+      delete process.env.API_USERS_AUTH_URL
+    }
+  })
+})
+
 describe("GET /internal/verify", () => {
   it("rejects missing bearer token with 401", async () => {
     const res = await app.request("/internal/verify")
