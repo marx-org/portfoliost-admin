@@ -99,15 +99,7 @@ admin.get("/users", async (c) => {
     })
     const listText = await listRes.text()
     let listBody: {
-      items: Array<{
-        userId: string
-        email: string | null
-        firstName: string | null
-        lastName: string | null
-        groups: string[] | null
-        lastLogin: string | null
-        createdAt: string
-      }>
+      items: Array<{ userId: string; createdAt: string }>
       pagination: { total: number; page: number; per_page: number; total_pages: number }
     }
     try {
@@ -117,18 +109,21 @@ admin.get("/users", async (c) => {
       return c.json({ error: "Upstream error" }, 502)
     }
 
-    // D48b amendment: users-auth persists identity at token exchange, so
-    // this is a pure pass-through (no OIDC calls — client-credentials
-    // tokens have no user subject and /userinfo is per-token-sub anyway).
-    const items = listBody.items.map((item) => ({
-      id: item.userId,
-      email: item.email,
-      firstName: item.firstName,
-      lastName: item.lastName,
-      groups: item.groups ?? [],
-      lastLogin: item.lastLogin,
-      createdAt: item.createdAt,
-    }))
+    // Identity comes from the PocketID Admin API (X-API-KEY) — never stored
+    // in portfoliost. Unconfigured/unreachable PocketID degrades to nulls.
+    const pocketId = await fetchPocketIdUsers()
+
+    const items = listBody.items.map((item) => {
+      const identity = pocketId.get(item.userId)
+      return {
+        id: item.userId,
+        email: identity?.email ?? null,
+        firstName: identity?.firstName ?? null,
+        lastName: identity?.lastName ?? null,
+        groups: identity?.groups ?? [],
+        createdAt: item.createdAt,
+      }
+    })
 
     return c.json({ items, pagination: listBody.pagination })
   } catch (error) {
@@ -136,6 +131,54 @@ admin.get("/users", async (c) => {
     return c.json({ error: "Upstream unavailable" }, 502)
   }
 })
+
+interface PocketIdIdentity {
+  email: string | null
+  firstName: string | null
+  lastName: string | null
+  groups: string[]
+}
+
+async function fetchPocketIdUsers(): Promise<Map<string, PocketIdIdentity>> {
+  const map = new Map<string, PocketIdIdentity>()
+  const baseUrl = process.env.POCKETID_BASE_URL
+  const apiKey = process.env.POCKETID_ADMIN_API_KEY
+  if (!baseUrl || !apiKey) return map
+
+  try {
+    const res = await fetch(`${baseUrl}/api/users`, {
+      headers: { "X-API-KEY": apiKey },
+      signal: AbortSignal.timeout(5000),
+    })
+    if (!res.ok) {
+      console.error("PocketID /api/users failed:", res.status)
+      return map
+    }
+    const body = await res.json() as {
+      data?: Array<{
+        id: string
+        email?: string | null
+        firstName?: string | null
+        lastName?: string | null
+        isAdmin?: boolean
+        userGroups?: Array<{ name?: string } | string>
+      }>
+    }
+    for (const u of body.data ?? []) {
+      const groups = (u.userGroups ?? []).map((g) => (typeof g === "string" ? g : String(g?.name ?? ""))).filter(Boolean)
+      if (u.isAdmin && !groups.includes("pocketid_admin")) groups.push("pocketid_admin")
+      map.set(u.id, {
+        email: u.email ?? null,
+        firstName: u.firstName ?? null,
+        lastName: u.lastName ?? null,
+        groups,
+      })
+    }
+  } catch (error) {
+    console.error("PocketID identity fetch failed:", error)
+  }
+  return map
+}
 
 app.route("/api/admin", admin)
 

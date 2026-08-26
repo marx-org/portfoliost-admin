@@ -50,23 +50,77 @@ describe("Admin proxies hit module /api-prefixed routes", () => {
     }
   })
 
-  it("proxies users to users-auth /api/users/admin/list", async () => {
+  it("merges users-auth rows with PocketID identity by user id", async () => {
     process.env.API_USERS_AUTH_URL = "http://users-auth:3000"
+    process.env.POCKETID_BASE_URL = "https://pocket-id.example"
+    process.env.POCKETID_ADMIN_API_KEY = "test-key"
     delete process.env.API_WALLETS_URL
-    delete process.env.OIDC_ISSUER_URL
-    const seen: string[] = []
     const origFetch = globalThis.fetch
-    globalThis.fetch = (async (input: RequestInfo | URL) => {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
-      seen.push(url)
-      return new Response(JSON.stringify({ items: [], pagination: { total: 0, page: 1, per_page: 50, total_pages: 0 } }), {
-        headers: { "content-type": "application/json" },
-      })
+      if (url.includes("/api/users/admin/list")) {
+        return new Response(JSON.stringify({
+          items: [{ userId: "uuid-1", createdAt: "2026-08-22T09:00:00Z" }],
+          pagination: { total: 1, page: 1, per_page: 50, total_pages: 1 },
+        }), { headers: { "content-type": "application/json" } })
+      }
+      if (url === "https://pocket-id.example/api/users") {
+        expect((init?.headers as Record<string, string>)["X-API-KEY"]).toBe("test-key")
+        return new Response(JSON.stringify({
+          data: [{
+            id: "uuid-1",
+            email: "alice@example.com",
+            firstName: "Alice",
+            lastName: "Smith",
+            isAdmin: false,
+            userGroups: [{ name: "portfoliost_admin" }],
+          }],
+        }), { headers: { "content-type": "application/json" } })
+      }
+      return new Response("Not Found", { status: 404 })
     }) as typeof fetch
     try {
       const res = await app.request("/api/admin/users", { headers: adminHeaders })
       expect(res.status).toBe(200)
-      expect(seen[0]).toBe("http://users-auth:3000/api/users/admin/list?")
+      const data = await res.json()
+      expect(data.items[0]).toEqual({
+        id: "uuid-1",
+        email: "alice@example.com",
+        firstName: "Alice",
+        lastName: "Smith",
+        groups: ["portfoliost_admin"],
+        createdAt: "2026-08-22T09:00:00Z",
+      })
+    } finally {
+      globalThis.fetch = origFetch
+      delete process.env.API_USERS_AUTH_URL
+      delete process.env.POCKETID_BASE_URL
+      delete process.env.POCKETID_ADMIN_API_KEY
+    }
+  })
+
+  it("degrades identity fields to nulls when PocketID is not configured", async () => {
+    process.env.API_USERS_AUTH_URL = "http://users-auth:3000"
+    delete process.env.API_WALLETS_URL
+    delete process.env.POCKETID_BASE_URL
+    delete process.env.POCKETID_ADMIN_API_KEY
+    const origFetch = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+      if (url.includes("/api/users/admin/list")) {
+        return new Response(JSON.stringify({
+          items: [{ userId: "uuid-1", createdAt: "2026-08-22T09:00:00Z" }],
+          pagination: { total: 1, page: 1, per_page: 50, total_pages: 1 },
+        }), { headers: { "content-type": "application/json" } })
+      }
+      return new Response("Not Found", { status: 404 })
+    }) as typeof fetch
+    try {
+      const res = await app.request("/api/admin/users", { headers: adminHeaders })
+      expect(res.status).toBe(200)
+      const data = await res.json()
+      expect(data.items[0].email).toBeNull()
+      expect(data.items[0].groups).toEqual([])
     } finally {
       globalThis.fetch = origFetch
       delete process.env.API_USERS_AUTH_URL
