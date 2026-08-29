@@ -114,10 +114,25 @@ UPLOAD_DIR=/tmp/stooq-uploads
 ZIP="$UPLOAD_DIR/${uploadFile}"
 LOAD="$UPLOAD_DIR/${loadFile}"
 trap 'rm -f "$ZIP" "$LOAD"' EXIT
+
 cat > "$LOAD" << EOF
 LOAD ARCHIVE
   FROM $ZIP
   INTO ${pgDsn}
+  BEFORE LOAD DO
+    \\$\\$ CREATE TABLE IF NOT EXISTS ${table} (
+         ticker   TEXT         NOT NULL,
+         period   TEXT         NOT NULL,
+         date     DATE         NOT NULL,
+         time     TEXT         NOT NULL DEFAULT '000000',
+         open     NUMERIC(20,8),
+         high     NUMERIC(20,8),
+         low      NUMERIC(20,8),
+         close    NUMERIC(20,8),
+         volume   BIGINT,
+         openint  BIGINT,
+         PRIMARY KEY (ticker, date, time)
+       ); \\$\\$
   LOAD CSV
     FROM ALL FILENAMES MATCHING ~/./
     INTO ${pgDsn}
