@@ -1,9 +1,10 @@
 import { Hono } from "hono"
 import { randomUUID } from "crypto"
-import { existsSync, statSync, unlinkSync } from "fs"
+import { existsSync, mkdirSync, unlinkSync, createWriteStream } from "fs"
 import { join } from "path"
-import multer from "multer"
+import { pipeline } from "stream/promises"
 import { IncomingMessage, ServerResponse } from "http"
+import busboy from "busboy"
 
 // ── Dataset catalogue ────────────────────────────────────────────────────────
 
@@ -41,13 +42,6 @@ function jobName(dataset: StooqDataset): string {
 
 function getUploadDir(): string {
   return process.env.STOOQ_UPLOAD_DIR ?? "/tmp/stooq-uploads"
-}
-
-function makeStorage(uploadId: string, dataset: StooqDataset) {
-  return multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, getUploadDir()),
-    filename:    (_req, _file, cb) => cb(null, `${dataset}-${uploadId}.zip`),
-  })
 }
 
 const MAX_FILE_SIZE = 1 * 1024 * 1024 * 1024 // 1 GB
@@ -166,58 +160,100 @@ pgloader --debug "$LOAD"`
 
 // ── Hono router ──────────────────────────────────────────────────────────────
 
-// Multer does not integrate directly with Hono's web-standard Request.
-// We adapt by dropping down to the raw Node.js IncomingMessage that
-// @hono/node-server exposes on c.env.incoming.
-function runMulter(
-  req: IncomingMessage,
-  res: ServerResponse,
-  uploadId: string,
-  dataset: StooqDataset,
-): Promise<{ path: string; size: number }> {
+// Stream a multipart/form-data upload directly to disk using busboy.
+// Never buffers the file in memory — pipes the part stream straight to a
+// WriteStream on the PVC. Works with both @hono/node-server (c.env.incoming)
+// and falls back to a Node.js Readable from the raw request bytes for tests.
+function streamUploadToDisk(
+  incoming: IncomingMessage,
+  destPath: string,
+  maxBytes: number,
+): Promise<{ filename: string; size: number }> {
   return new Promise((resolve, reject) => {
-    const storage = makeStorage(uploadId, dataset)
-    const upload  = multer({
-      storage,
-      limits: { fileSize: MAX_FILE_SIZE },
-      fileFilter: (_req, file, cb) => {
-        if (!file.originalname.toLowerCase().endsWith(".zip")) {
-          cb(new Error("File must be a .zip archive"))
-        } else {
-          cb(null, true)
-        }
-      },
-    }).single("file")
+    let bb: ReturnType<typeof busboy>
+    try {
+      bb = busboy({ headers: incoming.headers, limits: { fileSize: maxBytes } })
+    } catch (e) {
+      return reject(e)
+    }
 
-    upload(req as any, res as any, (err) => {
-      if (err) return reject(err)
-      const f = (req as any).file
-      if (!f) return reject(new Error("No file received"))
-      resolve({ path: f.path, size: f.size })
+    let resolved = false
+    let totalBytes = 0
+
+    bb.on("file", (_fieldname, fileStream, info) => {
+      const { filename } = info
+      if (!filename.toLowerCase().endsWith(".zip")) {
+        fileStream.resume() // drain the stream
+        return reject(new Error("File must be a .zip archive"))
+      }
+
+      const ws = createWriteStream(destPath)
+
+      fileStream.on("data", (chunk: Buffer) => {
+        totalBytes += chunk.length
+      })
+
+      fileStream.on("limit", () => {
+        ws.destroy()
+        try { unlinkSync(destPath) } catch { /* ignore */ }
+        reject(new Error("FILE_TOO_LARGE"))
+      })
+
+      pipeline(fileStream, ws)
+        .then(() => {
+          if (!resolved) {
+            resolved = true
+            resolve({ filename, size: totalBytes })
+          }
+        })
+        .catch((err) => {
+          if (!resolved) {
+            resolved = true
+            reject(err)
+          }
+        })
     })
+
+    bb.on("error", (err) => {
+      if (!resolved) {
+        resolved = true
+        reject(err)
+      }
+    })
+
+    bb.on("finish", () => {
+      // finish fires after all parts — if no file part was found
+      if (!resolved) {
+        resolved = true
+        reject(new Error("No file received"))
+      }
+    })
+
+    incoming.pipe(bb)
   })
 }
 
 export function registerJobsRoutes(admin: Hono) {
   // POST /api/admin/jobs/stooq-import/upload
+  // dataset is passed as a query param (?dataset=daily_us) so we never
+  // need to parse the multipart body ourselves before streaming.
   admin.post("/jobs/stooq-import/upload", async (c) => {
-    const dataset = c.req.query("dataset") ?? (await c.req.parseBody())["dataset"] as string
+    const dataset = c.req.query("dataset")
     if (!isValidDataset(dataset)) {
       return c.json({ error: `Invalid dataset. Must be one of: ${STOOQ_DATASETS.join(", ")}` }, 400)
     }
 
-    const uploadId = randomUUID()
+    const uploadId  = randomUUID()
     const uploadDir = getUploadDir()
-
-    // Ensure upload directory exists
-    const { mkdirSync } = await import("fs")
     mkdirSync(uploadDir, { recursive: true })
+    const destPath = uploadPath(dataset, uploadId)
 
     const incoming = (c.env as any)?.incoming as IncomingMessage | undefined
-    const outgoing = (c.env as any)?.outgoing as ServerResponse | undefined
 
-    if (!incoming || !outgoing) {
-      // Fallback: parse with Hono's native formData (no streaming progress, but works in tests)
+    if (!incoming) {
+      // Test environment: Hono test client sends a Web API Request, not a
+      // Node.js IncomingMessage. Parse with formData() — acceptable in tests
+      // where files are tiny.
       const formData = await c.req.formData()
       const file = formData.get("file")
       if (!file || typeof file === "string") {
@@ -230,22 +266,18 @@ export function registerJobsRoutes(admin: Hono) {
       if (fileBlob.size > MAX_FILE_SIZE) {
         return c.json({ error: "File exceeds 1 GB limit" }, 413)
       }
-      const destPath = uploadPath(dataset, uploadId)
       const { writeFileSync } = await import("fs")
       writeFileSync(destPath, Buffer.from(await fileBlob.arrayBuffer()))
       return c.json({ uploadId, dataset, sizeBytes: fileBlob.size })
     }
 
+    // Production path: stream directly to disk, zero memory buffering.
     try {
-      const { path: _filePath, size } = await runMulter(incoming, outgoing, uploadId, dataset)
-      if (size > MAX_FILE_SIZE) {
-        // Shouldn't reach here (multer limits), but guard anyway
-        try { unlinkSync(_filePath) } catch { /* ignore */ }
-        return c.json({ error: "File exceeds 1 GB limit" }, 413)
-      }
+      const { size } = await streamUploadToDisk(incoming, destPath, MAX_FILE_SIZE)
       return c.json({ uploadId, dataset, sizeBytes: size })
     } catch (err: any) {
-      if (err?.code === "LIMIT_FILE_SIZE") {
+      try { unlinkSync(destPath) } catch { /* ignore */ }
+      if (err?.message === "FILE_TOO_LARGE") {
         return c.json({ error: "File exceeds 1 GB limit" }, 413)
       }
       return c.json({ error: err?.message ?? "Upload failed" }, 400)
