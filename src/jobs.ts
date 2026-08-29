@@ -134,8 +134,6 @@ LOAD ARCHIVE
        ); \\$\\$,
     \\$\\$ ALTER TABLE ${table} DROP CONSTRAINT IF EXISTS ${table}_pkey; \\$\\$,
     \\$\\$ TRUNCATE ${table}; \\$\\$
-  FINALLY DO
-    \\$\\$ ALTER TABLE ${table} ADD PRIMARY KEY (ticker, date, time); \\$\\$
   LOAD CSV
     FROM ALL FILENAMES MATCHING ~/./
     INTO ${pgDsn}
@@ -152,7 +150,11 @@ LOAD ARCHIVE
     SET work_mem to '512 MB',
         maintenance_work_mem to '1024 MB';
 EOF
-pgloader --debug "$LOAD"`
+pgloader --debug "$LOAD"
+
+# Rebuild the primary key index in one pass after all rows are loaded.
+psql "${pgDsn}" -c "ALTER TABLE ${table} ADD PRIMARY KEY (ticker, date, time);"
+echo "Primary key on ${table} rebuilt successfully."`
 
   return {
     name:       jobName(dataset),
