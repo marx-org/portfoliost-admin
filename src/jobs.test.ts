@@ -39,16 +39,15 @@ describe("Stooq import jobs API (N)", () => {
 
   describe("POST /api/admin/jobs/stooq-import/upload", () => {
     it("rejects missing auth", async () => {
-      const res = await app.request("/api/admin/jobs/stooq-import/upload", { method: "POST" })
+      const res = await app.request("/api/admin/jobs/stooq-import/upload?dataset=daily_us", { method: "POST" })
       expect(res.status).toBe(401)
     })
 
     it("rejects invalid dataset via query param", async () => {
       const form = new FormData()
-      form.append("dataset", "invalid_dataset")
       form.append("file", new Blob(["fake"], { type: "application/zip" }), "test.zip")
       const res = await app.request(
-        "/api/admin/jobs/stooq-import/upload",
+        "/api/admin/jobs/stooq-import/upload?dataset=invalid_dataset",
         { method: "POST", headers: adminHeaders, body: form },
       )
       expect(res.status).toBe(400)
@@ -58,10 +57,9 @@ describe("Stooq import jobs API (N)", () => {
 
     it("rejects non-zip file extension", async () => {
       const form = new FormData()
-      form.append("dataset", "daily_us")
       form.append("file", new Blob(["fake"], { type: "application/zip" }), "test.csv")
       const res = await app.request(
-        "/api/admin/jobs/stooq-import/upload",
+        "/api/admin/jobs/stooq-import/upload?dataset=daily_us",
         { method: "POST", headers: adminHeaders, body: form },
       )
       expect(res.status).toBe(400)
@@ -72,10 +70,9 @@ describe("Stooq import jobs API (N)", () => {
     it("accepts a valid zip upload and returns uploadId + sizeBytes", async () => {
       const zipContent = Buffer.from("PK\x03\x04") // minimal zip magic bytes
       const form = new FormData()
-      form.append("dataset", "daily_us")
       form.append("file", new Blob([zipContent], { type: "application/zip" }), "d_us_txt.zip")
       const res = await app.request(
-        "/api/admin/jobs/stooq-import/upload",
+        "/api/admin/jobs/stooq-import/upload?dataset=daily_us",
         { method: "POST", headers: adminHeaders, body: form },
       )
       expect(res.status).toBe(200)
@@ -101,10 +98,9 @@ describe("Stooq import jobs API (N)", () => {
       ]
       for (const dataset of datasets) {
         const form = new FormData()
-        form.append("dataset", dataset)
         form.append("file", new Blob(["PK"], { type: "application/zip" }), "test.zip")
         const res = await app.request(
-          "/api/admin/jobs/stooq-import/upload",
+          `/api/admin/jobs/stooq-import/upload?dataset=${dataset}`,
           { method: "POST", headers: adminHeaders, body: form },
         )
         expect(res.status, `dataset ${dataset} should be accepted`).toBe(200)
