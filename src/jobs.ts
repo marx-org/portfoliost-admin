@@ -177,14 +177,20 @@ function streamUploadToDisk(
       return reject(e)
     }
 
-    let resolved = false
+    let settled = false
+    let fileReceived = false
     let totalBytes = 0
 
+    function settle(fn: () => void) {
+      if (!settled) { settled = true; fn() }
+    }
+
     bb.on("file", (_fieldname, fileStream, info) => {
+      fileReceived = true
       const { filename } = info
       if (!filename.toLowerCase().endsWith(".zip")) {
         fileStream.resume() // drain the stream
-        return reject(new Error("File must be a .zip archive"))
+        return settle(() => reject(new Error("File must be a .zip archive")))
       }
 
       const ws = createWriteStream(destPath)
@@ -196,36 +202,21 @@ function streamUploadToDisk(
       fileStream.on("limit", () => {
         ws.destroy()
         try { unlinkSync(destPath) } catch { /* ignore */ }
-        reject(new Error("FILE_TOO_LARGE"))
+        settle(() => reject(new Error("FILE_TOO_LARGE")))
       })
 
       pipeline(fileStream, ws)
-        .then(() => {
-          if (!resolved) {
-            resolved = true
-            resolve({ filename, size: totalBytes })
-          }
-        })
-        .catch((err) => {
-          if (!resolved) {
-            resolved = true
-            reject(err)
-          }
-        })
+        .then(() => settle(() => resolve({ filename, size: totalBytes })))
+        .catch((err) => settle(() => reject(err)))
     })
 
-    bb.on("error", (err) => {
-      if (!resolved) {
-        resolved = true
-        reject(err)
-      }
-    })
+    bb.on("error", (err) => settle(() => reject(err)))
 
     bb.on("finish", () => {
-      // finish fires after all parts — if no file part was found
-      if (!resolved) {
-        resolved = true
-        reject(new Error("No file received"))
+      // finish fires when all parts have been parsed (but pipeline may still
+      // be writing). Only reject here if no file field was seen at all.
+      if (!fileReceived) {
+        settle(() => reject(new Error("No file received")))
       }
     })
 
