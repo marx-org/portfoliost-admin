@@ -125,14 +125,14 @@ LOAD ARCHIVE
       TARGET COLUMNS (ticker, period, date, time, open, high, low, close, volume, openint)
     WITH truncate,
       skip header = 1,
-      fields terminated by \\',\\',
+      fields terminated by ',',
       fields not enclosed,
       batch concurrency = 1,
       workers = 2,
       concurrency = 1,
       disable triggers
-    SET work_mem to \\'512 MB\\',
-        maintenance_work_mem to \\'1024 MB\\';
+    SET work_mem to '512 MB',
+        maintenance_work_mem to '1024 MB';
 EOF
 pgloader --debug "$LOAD"`
 
