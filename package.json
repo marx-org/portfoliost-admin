@@ -11,8 +11,10 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
+    "@types/multer": "^2.2.0",
     "hono": "^4.7.0",
-    "jose": "^6.2.9"
+    "jose": "^6.2.9",
+    "multer": "^2.3.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
