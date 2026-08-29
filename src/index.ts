@@ -2,6 +2,7 @@ import { Hono } from "hono"
 import { logger } from "hono/logger"
 import { validateJwt, userIdentityMiddleware, requireGroup } from "./auth.js"
 import { moduleMeta } from "./meta.js"
+import { registerJobsRoutes } from "./jobs.js"
 
 const app = new Hono()
 
@@ -81,8 +82,7 @@ admin.get("/currencies/rates", async (c) => {
 })
 
 // D48b — users: call users-auth + enrich with OIDC UserInfo
-admin.get("/users", async (c) => {
-  const usersAuthUrl = process.env.API_USERS_AUTH_URL
+admin.get("/users", async (c) => {  const usersAuthUrl = process.env.API_USERS_AUTH_URL
   if (!usersAuthUrl) return c.json({ items: [], pagination: { total: 0, page: 1, per_page: 50, total_pages: 0 } })
 
   const params = new URLSearchParams()
@@ -179,6 +179,9 @@ async function fetchPocketIdUsers(): Promise<Map<string, PocketIdIdentity>> {
   }
   return map
 }
+
+// N — stooq import jobs
+registerJobsRoutes(admin)
 
 app.route("/api/admin", admin)
 
