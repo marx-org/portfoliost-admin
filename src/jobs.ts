@@ -130,15 +130,18 @@ LOAD ARCHIVE
          low      NUMERIC(20,8),
          close    NUMERIC(20,8),
          volume   BIGINT,
-         openint  BIGINT,
-         PRIMARY KEY (ticker, date, time)
-       ); \\$\\$
+         openint  BIGINT
+       ); \\$\\$,
+    \\$\\$ ALTER TABLE ${table} DROP CONSTRAINT IF EXISTS ${table}_pkey; \\$\\$,
+    \\$\\$ TRUNCATE ${table}; \\$\\$
+  FINALLY DO
+    \\$\\$ ALTER TABLE ${table} ADD PRIMARY KEY (ticker, date, time); \\$\\$
   LOAD CSV
     FROM ALL FILENAMES MATCHING ~/./
     INTO ${pgDsn}
       TARGET TABLE ${table}
       TARGET COLUMNS (ticker, period, date, time, open, high, low, close, volume, openint)
-    WITH truncate,
+    WITH no truncate,
       skip header = 1,
       fields terminated by ',',
       fields not enclosed,
