@@ -144,7 +144,7 @@ LOAD ARCHIVE
       skip header = 1,
       fields terminated by ',',
       fields not enclosed,
-      batch size = 500000 rows,
+      batch size = 500 MB,
       batch concurrency = 4,
       workers = 8,
       concurrency = 2,
