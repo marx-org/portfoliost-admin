@@ -109,6 +109,7 @@ function buildJobSpec(dataset: StooqDataset, uploadId: string): JobshotRunPayloa
   // Strategy: write the pgloader load file at runtime using a here-document
   // with double-quotes so the shell expands $password. trap cleans up on EXIT.
   const pgDsn = `postgres://postgres:$password@postgres-pfire-primary.pfire.svc:5432/stooq`
+  const newTable = `${table}_new`
   const script = `set -e
 UPLOAD_DIR=/tmp/stooq-uploads
 ZIP="$UPLOAD_DIR/${uploadFile}"
@@ -120,8 +121,8 @@ LOAD ARCHIVE
   FROM $ZIP
   INTO ${pgDsn}
   BEFORE LOAD DO
-    \\$\\$ DROP TABLE IF EXISTS ${table}; \\$\\$,
-    \\$\\$ CREATE TABLE ${table} (
+    \\$\\$ DROP TABLE IF EXISTS ${newTable}; \\$\\$,
+    \\$\\$ CREATE TABLE ${newTable} (
          ticker   TEXT          NOT NULL,
          period   TEXT          NOT NULL,
          date     DATE          NOT NULL,
@@ -136,7 +137,7 @@ LOAD ARCHIVE
   LOAD CSV
     FROM ALL FILENAMES MATCHING ~/./
     INTO ${pgDsn}
-      TARGET TABLE ${table}
+      TARGET TABLE ${newTable}
       TARGET COLUMNS (ticker, period, date, time, open, high, low, close, volume, openint)
     WITH no truncate,
       skip header = 1,
@@ -157,9 +158,17 @@ LOAD ARCHIVE
 EOF
 pgloader --debug "$LOAD"
 
-# Rebuild the primary key index in one pass after all rows are loaded.
-psql "${pgDsn}" -c "ALTER TABLE ${table} ADD PRIMARY KEY (ticker, date, time);"
-echo "Primary key on ${table} rebuilt successfully."`
+# Build PK on the staging table, then atomically swap it into place.
+# The live table (${table}) stays queryable via postgres_fdw right up
+# until the RENAME inside the transaction — downtime is < 1 ms.
+psql "${pgDsn}" << 'PSQL'
+ALTER TABLE ${newTable} ADD PRIMARY KEY (ticker, date, time);
+BEGIN;
+DROP TABLE IF EXISTS ${table};
+ALTER TABLE ${newTable} RENAME TO ${table};
+COMMIT;
+PSQL
+echo "Import of ${table} complete."`
 
   return {
     name:       jobName(dataset),
