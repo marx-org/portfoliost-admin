@@ -112,6 +112,11 @@ function buildJobSpec(dataset: StooqDataset, uploadId: string): JobshotRunPayloa
   const pgDsn = `postgres://postgres:$password@postgres-pfire-primary.pfire.svc:5432/stooq`
   const newTable = `${table}_new`
   const script = `set -e
+# Install psql if not present (pgloader image is Debian-based)
+if ! command -v psql > /dev/null 2>&1; then
+  apt-get update -qq && apt-get install -y -qq postgresql-client
+fi
+
 UPLOAD_DIR=/tmp/stooq-uploads
 ZIP="$UPLOAD_DIR/${uploadFile}"
 LOAD="$UPLOAD_DIR/${loadFile}"
