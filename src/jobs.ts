@@ -121,16 +121,16 @@ LOAD ARCHIVE
   INTO ${pgDsn}
   BEFORE LOAD DO
     \\$\\$ CREATE TABLE IF NOT EXISTS ${table} (
-         ticker   TEXT         NOT NULL,
-         period   TEXT         NOT NULL,
-         date     DATE         NOT NULL,
-         time     TEXT         NOT NULL DEFAULT '000000',
+         ticker   TEXT          NOT NULL,
+         period   TEXT          NOT NULL,
+         date     DATE          NOT NULL,
+         time     TEXT          NOT NULL DEFAULT '000000',
          open     NUMERIC(20,8),
          high     NUMERIC(20,8),
          low      NUMERIC(20,8),
          close    NUMERIC(20,8),
-         volume   BIGINT,
-         openint  BIGINT
+         volume   NUMERIC(28,8),
+         openint  NUMERIC(28,8)
        ); \\$\\$,
     \\$\\$ ALTER TABLE ${table} DROP CONSTRAINT IF EXISTS ${table}_pkey; \\$\\$,
     \\$\\$ TRUNCATE ${table}; \\$\\$
@@ -148,7 +148,13 @@ LOAD ARCHIVE
       concurrency = 1,
       disable triggers
     SET work_mem to '512 MB',
-        maintenance_work_mem to '1024 MB';
+        maintenance_work_mem to '1024 MB',
+        statement_timeout to '0',
+        lock_timeout to '0',
+        idle_in_transaction_session_timeout to '0',
+        tcp_keepalives_idle to '60',
+        tcp_keepalives_interval to '10',
+        tcp_keepalives_count to '6';
 EOF
 pgloader --debug "$LOAD"
 
