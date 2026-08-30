@@ -120,7 +120,8 @@ LOAD ARCHIVE
   FROM $ZIP
   INTO ${pgDsn}
   BEFORE LOAD DO
-    \\$\\$ CREATE TABLE IF NOT EXISTS ${table} (
+    \\$\\$ DROP TABLE IF EXISTS ${table}; \\$\\$,
+    \\$\\$ CREATE TABLE ${table} (
          ticker   TEXT          NOT NULL,
          period   TEXT          NOT NULL,
          date     DATE          NOT NULL,
@@ -131,9 +132,7 @@ LOAD ARCHIVE
          close    NUMERIC(20,8),
          volume   NUMERIC(28,8),
          openint  NUMERIC(28,8)
-       ); \\$\\$,
-    \\$\\$ ALTER TABLE ${table} DROP CONSTRAINT IF EXISTS ${table}_pkey; \\$\\$,
-    \\$\\$ TRUNCATE ${table}; \\$\\$
+       ); \\$\\$
   LOAD CSV
     FROM ALL FILENAMES MATCHING ~/./
     INTO ${pgDsn}
