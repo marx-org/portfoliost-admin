@@ -163,23 +163,26 @@ EOF
 pgloader --debug "$LOAD"
 
 # Post-load: SET LOGGED, build PK, atomic swap.
-# Uses a second pgloader invocation with a zero-row INLINE CSV —
-# the only purpose is to run BEFORE LOAD DO SQL via pgloader's own
-# Postgres connection (no psql binary needed).
+# Uses LOAD CSV FROM INLINE with a real target table (pgloader_dummy)
+# and a single dummy row — zero-row INLINE crashes pgloader (known bug).
+# BEFORE LOAD DO runs all post-load SQL; AFTER LOAD DO drops the dummy.
 cat > "$POST" << EOF
 LOAD CSV
   FROM INLINE
   INTO ${pgDsn}
+  TARGET TABLE pgloader_dummy
   BEFORE LOAD DO
+    \\$\\$ DROP TABLE IF EXISTS pgloader_dummy; \\$\\$,
+    \\$\\$ CREATE TABLE pgloader_dummy (x int); \\$\\$,
     \\$\\$ SET maintenance_work_mem = '2GB'; \\$\\$,
     \\$\\$ SET statement_timeout = 0; \\$\\$,
     \\$\\$ ALTER TABLE ${newTable} SET LOGGED; \\$\\$,
     \\$\\$ ALTER TABLE ${newTable} ADD PRIMARY KEY (ticker, date, time); \\$\\$,
     \\$\\$ DO \\$swap\\$ BEGIN DROP TABLE IF EXISTS ${table}; ALTER TABLE ${newTable} RENAME TO ${table}; END \\$swap\\$; \\$\\$
-  WITH skip header = 0,
-       fields terminated by ','
-  SET statement_timeout to '0';
-
+  AFTER LOAD DO
+    \\$\\$ DROP TABLE IF EXISTS pgloader_dummy; \\$\\$
+  WITH skip header = 0, fields terminated by ',';
+1
 EOF
 pgloader "$POST"
 echo "Import of ${table} complete."`
