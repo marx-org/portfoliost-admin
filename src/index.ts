@@ -3,6 +3,10 @@ import { logger } from "hono/logger"
 import { validateJwt, userIdentityMiddleware, requireGroup } from "./auth.js"
 import { moduleMeta } from "./meta.js"
 import { registerJobsRoutes } from "./jobs.js"
+import type { components } from "./generated/api-types"
+
+type AdminUser = components["schemas"]["AdminUser"]
+type AdminUserListResponse = components["schemas"]["AdminUserListResponse"]
 
 const app = new Hono()
 
@@ -83,7 +87,13 @@ admin.get("/currencies/rates", async (c) => {
 
 // D48b — users: call users-auth + enrich with OIDC UserInfo
 admin.get("/users", async (c) => {  const usersAuthUrl = process.env.API_USERS_AUTH_URL
-  if (!usersAuthUrl) return c.json({ items: [], pagination: { total: 0, page: 1, per_page: 50, total_pages: 0 } })
+  if (!usersAuthUrl) {
+    const empty: AdminUserListResponse = {
+      items: [],
+      pagination: { total: 0, page: 1, per_page: 50, total_pages: 0 },
+    }
+    return c.json(empty)
+  }
 
   const params = new URLSearchParams()
   for (const key of ["page", "per_page", "search"]) {
@@ -99,7 +109,7 @@ admin.get("/users", async (c) => {  const usersAuthUrl = process.env.API_USERS_A
     })
     const listText = await listRes.text()
     let listBody: {
-      items: Array<{ userId: string; createdAt: string }>
+      items: Array<{ userId: string; lastLogin: string | null; createdAt: string }>
       pagination: { total: number; page: number; per_page: number; total_pages: number }
     }
     try {
@@ -113,7 +123,7 @@ admin.get("/users", async (c) => {  const usersAuthUrl = process.env.API_USERS_A
     // in portfoliost. Unconfigured/unreachable PocketID degrades to nulls.
     const pocketId = await fetchPocketIdUsers()
 
-    const items = listBody.items.map((item) => {
+    const items = listBody.items.map((item): AdminUser => {
       const identity = pocketId.get(item.userId)
       return {
         id: item.userId,
@@ -121,11 +131,13 @@ admin.get("/users", async (c) => {  const usersAuthUrl = process.env.API_USERS_A
         firstName: identity?.firstName ?? null,
         lastName: identity?.lastName ?? null,
         groups: identity?.groups ?? [],
+        lastLogin: item.lastLogin ?? null,
         createdAt: item.createdAt,
       }
     })
 
-    return c.json({ items, pagination: listBody.pagination })
+    const response: AdminUserListResponse = { items, pagination: listBody.pagination }
+    return c.json(response)
   } catch (error) {
     console.error("users proxy failed:", error)
     return c.json({ error: "Upstream unavailable" }, 502)

@@ -7,7 +7,8 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "gen:types": "openapi-typescript node_modules/@marx2/contracts/openapi.yaml -o src/generated/api-types.d.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
@@ -17,7 +18,9 @@
     "jose": "^6.2.9"
   },
   "devDependencies": {
+    "@marx2/contracts": "github:Marx2/portfoliost-contracts",
     "@types/node": "^22.0.0",
+    "openapi-typescript": "^7.13.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^3.1.0"
