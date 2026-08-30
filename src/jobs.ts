@@ -144,7 +144,7 @@ LOAD ARCHIVE
       skip header = 1,
       fields terminated by ',',
       fields not enclosed,
-      batch size = 500 MB,
+      batch size = 100 MB,
       batch concurrency = 4,
       workers = 8,
       concurrency = 2,
@@ -196,7 +196,7 @@ echo "Import of ${table} complete."`
     nodeSelector: { "kubernetes.io/hostname": "kaczka" },
     resources: {
       requests: { cpu: "500m",  memory: "1Gi" },
-      limits:   { cpu: "2000m", memory: "2Gi" },
+      limits:   { cpu: "2000m", memory: "4Gi" },
     },
   }
 }
