@@ -60,7 +60,7 @@ describe("Admin proxies hit module /api-prefixed routes", () => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
       if (url.includes("/api/users/admin/list")) {
         return new Response(JSON.stringify({
-          items: [{ userId: "uuid-1", createdAt: "2026-08-22T09:00:00Z" }],
+          items: [{ userId: "uuid-1", lastLogin: "2026-08-22T09:00:00Z", createdAt: "2026-08-22T09:00:00Z" }],
           pagination: { total: 1, page: 1, per_page: 50, total_pages: 1 },
         }), { headers: { "content-type": "application/json" } })
       }
@@ -89,6 +89,7 @@ describe("Admin proxies hit module /api-prefixed routes", () => {
         firstName: "Alice",
         lastName: "Smith",
         groups: ["portfoliost_admin"],
+        lastLogin: "2026-08-22T09:00:00Z",
         createdAt: "2026-08-22T09:00:00Z",
       })
     } finally {
@@ -109,7 +110,7 @@ describe("Admin proxies hit module /api-prefixed routes", () => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
       if (url.includes("/api/users/admin/list")) {
         return new Response(JSON.stringify({
-          items: [{ userId: "uuid-1", createdAt: "2026-08-22T09:00:00Z" }],
+          items: [{ userId: "uuid-1", lastLogin: "2026-08-22T09:00:00Z", createdAt: "2026-08-22T09:00:00Z" }],
           pagination: { total: 1, page: 1, per_page: 50, total_pages: 1 },
         }), { headers: { "content-type": "application/json" } })
       }
@@ -121,6 +122,7 @@ describe("Admin proxies hit module /api-prefixed routes", () => {
       const data = await res.json()
       expect(data.items[0].email).toBeNull()
       expect(data.items[0].groups).toEqual([])
+      expect(data.items[0].lastLogin).toBe("2026-08-22T09:00:00Z")
     } finally {
       globalThis.fetch = origFetch
       delete process.env.API_USERS_AUTH_URL
