@@ -67,6 +67,7 @@ interface JobshotRunPayload {
   secretName:   string
   volumes:      object[]
   volumeMounts: object[]
+  nodeSelector: Record<string, string>
   resources:    { requests: { cpu: string; memory: string }; limits: { cpu: string; memory: string } }
 }
 
@@ -122,7 +123,7 @@ LOAD ARCHIVE
   INTO ${pgDsn}
   BEFORE LOAD DO
     \\$\\$ DROP TABLE IF EXISTS ${newTable}; \\$\\$,
-    \\$\\$ CREATE TABLE ${newTable} (
+    \\$\\$ CREATE UNLOGGED TABLE ${newTable} (
          ticker   TEXT          NOT NULL,
          period   TEXT          NOT NULL,
          date     DATE          NOT NULL,
@@ -143,12 +144,14 @@ LOAD ARCHIVE
       skip header = 1,
       fields terminated by ',',
       fields not enclosed,
-      batch concurrency = 1,
-      workers = 2,
-      concurrency = 1,
+      batch size = 500000 rows,
+      batch concurrency = 4,
+      workers = 8,
+      concurrency = 2,
       disable triggers
     SET work_mem to '512 MB',
         maintenance_work_mem to '1024 MB',
+        synchronous_commit to 'off',
         statement_timeout to '0',
         lock_timeout to '0',
         idle_in_transaction_session_timeout to '0',
@@ -162,6 +165,9 @@ pgloader --debug "$LOAD"
 # The live table (${table}) stays queryable via postgres_fdw right up
 # until the RENAME inside the transaction — downtime is < 1 ms.
 psql "${pgDsn}" << 'PSQL'
+SET maintenance_work_mem = '2GB';
+SET statement_timeout = 0;
+ALTER TABLE ${newTable} SET LOGGED;
 ALTER TABLE ${newTable} ADD PRIMARY KEY (ticker, date, time);
 BEGIN;
 DROP TABLE IF EXISTS ${table};
@@ -185,6 +191,9 @@ echo "Import of ${table} complete."`
       name:      "stooq-upload",
       mountPath: "/tmp/stooq-uploads",
     }],
+    // Pin to kaczka — largest free SSD (~122 GB), same node as the
+    // hostPath PV so the zip is always readable by the pgloader pod.
+    nodeSelector: { "kubernetes.io/hostname": "kaczka" },
     resources: {
       requests: { cpu: "500m",  memory: "1Gi" },
       limits:   { cpu: "2000m", memory: "2Gi" },
