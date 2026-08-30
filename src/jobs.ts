@@ -112,15 +112,11 @@ function buildJobSpec(dataset: StooqDataset, uploadId: string): JobshotRunPayloa
   const pgDsn = `postgres://postgres:$password@postgres-pfire-primary.pfire.svc:5432/stooq`
   const newTable = `${table}_new`
   const script = `set -e
-# Install psql if not present (pgloader image is Debian-based)
-if ! command -v psql > /dev/null 2>&1; then
-  apt-get update -qq && apt-get install -y -qq postgresql-client
-fi
-
 UPLOAD_DIR=/tmp/stooq-uploads
 ZIP="$UPLOAD_DIR/${uploadFile}"
 LOAD="$UPLOAD_DIR/${loadFile}"
-trap 'rm -f "$ZIP" "$LOAD"' EXIT
+POST="$UPLOAD_DIR/${loadFile}.post"
+trap 'rm -f "$ZIP" "$LOAD" "$POST"' EXIT
 
 cat > "$LOAD" << EOF
 LOAD ARCHIVE
@@ -166,19 +162,26 @@ LOAD ARCHIVE
 EOF
 pgloader --debug "$LOAD"
 
-# Build PK on the staging table, then atomically swap it into place.
-# The live table (${table}) stays queryable via postgres_fdw right up
-# until the RENAME inside the transaction — downtime is < 1 ms.
-psql "${pgDsn}" << 'PSQL'
-SET maintenance_work_mem = '2GB';
-SET statement_timeout = 0;
-ALTER TABLE ${newTable} SET LOGGED;
-ALTER TABLE ${newTable} ADD PRIMARY KEY (ticker, date, time);
-BEGIN;
-DROP TABLE IF EXISTS ${table};
-ALTER TABLE ${newTable} RENAME TO ${table};
-COMMIT;
-PSQL
+# Post-load: SET LOGGED, build PK, atomic swap.
+# Uses a second pgloader invocation with a zero-row INLINE CSV —
+# the only purpose is to run BEFORE LOAD DO SQL via pgloader's own
+# Postgres connection (no psql binary needed).
+cat > "$POST" << EOF
+LOAD CSV
+  FROM INLINE
+  INTO ${pgDsn}
+  BEFORE LOAD DO
+    \\$\\$ SET maintenance_work_mem = '2GB'; \\$\\$,
+    \\$\\$ SET statement_timeout = 0; \\$\\$,
+    \\$\\$ ALTER TABLE ${newTable} SET LOGGED; \\$\\$,
+    \\$\\$ ALTER TABLE ${newTable} ADD PRIMARY KEY (ticker, date, time); \\$\\$,
+    \\$\\$ DO \\$swap\\$ BEGIN DROP TABLE IF EXISTS ${table}; ALTER TABLE ${newTable} RENAME TO ${table}; END \\$swap\\$; \\$\\$
+  WITH skip header = 0,
+       fields terminated by ','
+  SET statement_timeout to '0';
+
+EOF
+pgloader "$POST"
 echo "Import of ${table} complete."`
 
   return {
