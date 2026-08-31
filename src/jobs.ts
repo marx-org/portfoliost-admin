@@ -577,33 +577,53 @@ export function registerJobsRoutes(admin: Hono) {
   })
 
   // GET /api/admin/jobs/stooq-import/log
+  // Reads from admin.job_run — no cross-module call needed. One entry per
+  // dataset: datasets that have never been triggered appear as all-nulls rows.
+  // latest_date and rows_deleted are null until the post-import hook writes them.
   admin.get("/jobs/stooq-import/log", async (c) => {
-    const instrumentsUrl = process.env.API_INSTRUMENTS_URL
-    if (!instrumentsUrl) {
-      // Return empty log for all datasets when instruments not configured
-      return c.json(
-        STOOQ_DATASETS.map((d) => ({ dataset: d, latestDate: null, importedAt: null, rowsDeleted: null })),
-      )
+    const nullEntry = (d: StooqDataset) => ({
+      dataset: d, latestDate: null, importedAt: null, rowsDeleted: null,
+    })
+
+    if (!_db) {
+      return c.json(STOOQ_DATASETS.map(nullEntry))
     }
 
     try {
-      const res = await fetch(`${instrumentsUrl}/api/instruments/internal/stooq-import-log`, {
-        signal: AbortSignal.timeout(5_000),
-      })
-      if (!res.ok) throw new Error(`instruments returned ${res.status}`)
-      const data = await res.json() as Array<{
-        dataset: string; latestDate: string | null; importedAt: string | null; rowsDeleted: number | null
-      }>
+      const rows: Array<{ param: string | null; startedAt: Date | null; latestDate: string | null; rowsDeleted: number | null }> =
+        await (_db as any)
+          .select({
+            param:       jobRun.param,
+            startedAt:   jobRun.startedAt,
+            latestDate:  jobRun.latestDate,
+            rowsDeleted: jobRun.rowsDeleted,
+          })
+          .from(jobRun)
+          .where(eq(jobRun.kind, "stooq_import"))
 
-      // Build a full response with all datasets, filling in nulls for any not yet imported
-      const byDataset = new Map(data.map((e) => [e.dataset, e]))
+      // Index by dataset (param)
+      const byDataset = new Map(
+        rows
+          .filter((r) => r.param !== null)
+          .map((r) => [r.param as string, r]),
+      )
+
       return c.json(
-        STOOQ_DATASETS.map((d) => byDataset.get(d) ?? { dataset: d, latestDate: null, importedAt: null, rowsDeleted: null }),
+        STOOQ_DATASETS.map((d) => {
+          const r = byDataset.get(d)
+          if (!r) return nullEntry(d)
+          return {
+            dataset:     d,
+            // started_at is the best available proxy for "when imported" until
+            // the post-import hook writes a dedicated importedAt (open item D53)
+            importedAt:  r.startedAt ? r.startedAt.toISOString() : null,
+            latestDate:  r.latestDate ?? null,
+            rowsDeleted: r.rowsDeleted ?? null,
+          }
+        }),
       )
     } catch {
-      return c.json(
-        STOOQ_DATASETS.map((d) => ({ dataset: d, latestDate: null, importedAt: null, rowsDeleted: null })),
-      )
+      return c.json(STOOQ_DATASETS.map(nullEntry))
     }
   })
 }

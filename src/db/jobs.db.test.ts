@@ -263,3 +263,49 @@ describe("backend poller (D53)", () => {
     delete process.env.API_JOBSHOT_URL
   })
 })
+
+// ── /log reads from job_run ───────────────────────────────────────────────────
+
+describe("GET /api/admin/jobs/stooq-import/log — reads job_run (D53)", () => {
+  afterEach(() => {
+    stopJobPoller()
+    setJobsDb(null as any)
+  })
+
+  it("returns all 20 datasets; triggered ones show importedAt from started_at", async () => {
+    const { db } = await createTestDb()
+    setJobsDb(db as any)
+
+    const start = new Date("2026-08-31T22:00:00Z")
+    await (db as any).insert(jobRun).values({
+      name: "stooq-importer-daily-pl",
+      namespace: "pfire",
+      kind: "stooq_import",
+      param: "daily_pl",
+      status: "Succeeded",
+      details: null,
+      startedAt: start,
+      updatedAt: start,
+    })
+
+    const res = await app.request("/api/admin/jobs/stooq-import/log", {
+      headers: {
+        "X-User-Id": "admin-1",
+        "X-User-Email": "admin@example.com",
+        "X-User-Groups": "portfoliost_admin",
+      },
+    })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toHaveLength(20)
+
+    const plEntry = body.find((e: any) => e.dataset === "daily_pl")
+    expect(plEntry.importedAt).toBe("2026-08-31T22:00:00.000Z")
+    expect(plEntry.latestDate).toBeNull()   // post-import hook not yet wired
+    expect(plEntry.rowsDeleted).toBeNull()  // same
+
+    const usEntry = body.find((e: any) => e.dataset === "daily_us")
+    expect(usEntry.importedAt).toBeNull()   // never triggered
+    expect(usEntry.latestDate).toBeNull()
+  })
+})
