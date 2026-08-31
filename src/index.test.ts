@@ -221,4 +221,49 @@ describe("Admin API authorization (D50)", () => {
       globalThis.fetch = origFetch
     }
   })
+
+  it("aggregates openst and cachest versions when their URLs are configured", async () => {
+    const prevOpen = process.env.API_OPENST_URL
+    const prevCache = process.env.API_CACHEST_URL
+    process.env.API_OPENST_URL = "http://openst:8080"
+    process.env.API_CACHEST_URL = "http://cachest:8080"
+
+    const origFetch = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+      if (url === "http://openst:8080/__meta") {
+        return new Response(JSON.stringify({ service: "openst", impl: "real", version: "1.0.18" }), {
+          headers: { "content-type": "application/json" },
+        })
+      }
+      if (url === "http://cachest:8080/__meta") {
+        return new Response(JSON.stringify({ service: "cachest", impl: "real", version: "1.0.21" }), {
+          headers: { "content-type": "application/json" },
+        })
+      }
+      return new Response("Not Found", { status: 404 })
+    }) as typeof fetch
+    try {
+      const res = await app.request("/api/admin/system/versions", {
+        headers: {
+          "X-User-Id": "admin-1",
+          "X-User-Email": "admin@example.com",
+          "X-User-Groups": "portfoliost_admin",
+        },
+      })
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      const services = body.services as { service: string; version: string; impl: string }[]
+      const openst = services.find((s) => s.service === "openst")
+      const cachest = services.find((s) => s.service === "cachest")
+      expect(openst).toEqual({ service: "openst", version: "1.0.18", impl: "real" })
+      expect(cachest).toEqual({ service: "cachest", version: "1.0.21", impl: "real" })
+    } finally {
+      globalThis.fetch = origFetch
+      if (prevOpen === undefined) delete process.env.API_OPENST_URL
+      else process.env.API_OPENST_URL = prevOpen
+      if (prevCache === undefined) delete process.env.API_CACHEST_URL
+      else process.env.API_CACHEST_URL = prevCache
+    }
+  })
 })
