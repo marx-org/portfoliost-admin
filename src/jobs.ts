@@ -177,6 +177,7 @@ LOAD CSV
     \\$\\$ SET maintenance_work_mem = '2GB'; \\$\\$,
     \\$\\$ SET statement_timeout = 0; \\$\\$,
     \\$\\$ ALTER TABLE ${newTable} SET LOGGED; \\$\\$,
+    \\$\\$ DELETE FROM ${newTable} WHERE ctid IN (SELECT ctid FROM (SELECT ctid, row_number() OVER (PARTITION BY ticker, date, time ORDER BY ctid) AS rn FROM ${newTable}) sub WHERE rn > 1); \\$\\$,
     \\$\\$ ALTER TABLE ${newTable} ADD PRIMARY KEY (ticker, date, time); \\$\\$,
     \\$\\$ DO \\$swap\\$ BEGIN DROP TABLE IF EXISTS ${table}; ALTER TABLE ${newTable} RENAME TO ${table}; END \\$swap\\$; \\$\\$
   AFTER LOAD DO
