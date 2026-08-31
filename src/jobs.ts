@@ -5,6 +5,9 @@ import { join } from "path"
 import { pipeline } from "stream/promises"
 import { IncomingMessage, ServerResponse } from "http"
 import busboy from "busboy"
+import { eq } from "drizzle-orm"
+import type { DB } from "./db/index.js"
+import { jobRun } from "./db/schema.js"
 
 // ── Dataset catalogue ────────────────────────────────────────────────────────
 
@@ -93,6 +96,140 @@ async function callJobshotStatus(name: string, namespace: string): Promise<{
   )
   if (!res.ok) throw new Error(`jobshot status failed: ${res.status}`)
   return res.json()
+}
+
+// ── DB helpers ────────────────────────────────────────────────────────────────
+
+// The DB is injected at server startup via setJobsDb(). In tests it can be
+// replaced with a PGlite instance. When null (e.g. during unit tests that don't
+// need DB) status routes fall back to NotFound gracefully.
+let _db: DB | null = null
+
+export function setJobsDb(db: DB) {
+  _db = db
+}
+
+type JobStatus = "Running" | "Succeeded" | "Failed" | "NotFound"
+
+interface JobRunRow {
+  name: string
+  namespace: string
+  kind: string
+  param: string | null
+  status: string
+  details: unknown
+  startedAt: Date | null
+  updatedAt: Date
+}
+
+async function upsertJobRun(
+  db: DB,
+  row: { name: string; namespace: string; kind: string; param: string | null; status: JobStatus; details: unknown; startedAt?: Date },
+): Promise<void> {
+  const now = new Date()
+  await (db as any)
+    .insert(jobRun)
+    .values({
+      name: row.name,
+      namespace: row.namespace,
+      kind: row.kind,
+      param: row.param,
+      status: row.status,
+      details: row.details ?? null,
+      startedAt: row.startedAt ?? now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: jobRun.name,
+      set: {
+        status: row.status,
+        details: row.details ?? null,
+        updatedAt: now,
+        // namespace/kind/param only change on a new run — update them too
+        namespace: row.namespace,
+        kind: row.kind,
+        param: row.param,
+        startedAt: row.startedAt ?? now,
+      },
+    })
+}
+
+async function getJobRun(db: DB, name: string): Promise<JobRunRow | null> {
+  const rows = await (db as any).select().from(jobRun).where(eq(jobRun.name, name)).limit(1)
+  return (rows[0] as JobRunRow) ?? null
+}
+
+async function getActiveJobRuns(db: DB): Promise<JobRunRow[]> {
+  const rows = await (db as any).select().from(jobRun).where(eq(jobRun.status, "Running"))
+  return rows as JobRunRow[]
+}
+
+// ── Backend poller ────────────────────────────────────────────────────────────
+
+// Polls jobshot every 60 s for all Running jobs, persisting status changes to
+// admin.job_run. Runs in the backend process — survives browser session expiry.
+let _pollerTimer: ReturnType<typeof setInterval> | null = null
+
+export function startJobPoller(db: DB): void {
+  if (_pollerTimer) return // already running
+  _db = db
+  // Kick off immediately, then every 60 s
+  void pollActiveJobs(db)
+  _pollerTimer = setInterval(() => void pollActiveJobs(db), 60_000)
+}
+
+export function stopJobPoller(): void {
+  if (_pollerTimer) {
+    clearInterval(_pollerTimer)
+    _pollerTimer = null
+  }
+}
+
+async function pollActiveJobs(db: DB): Promise<void> {
+  let active: JobRunRow[]
+  try {
+    active = await getActiveJobRuns(db)
+  } catch (err) {
+    console.error("[job-poller] failed to query active jobs:", err)
+    return
+  }
+  if (active.length === 0) return
+
+  await Promise.all(
+    active.map(async (row) => {
+      try {
+        const data = await callJobshotStatus(row.name, row.namespace)
+        const newStatus: JobStatus = data.exists
+          ? (data.isRunning ? "Running" : (data.status as JobStatus) ?? "NotFound")
+          : "NotFound"
+        const newDetails = data.details ?? null
+
+        // Only write if something changed. Use sorted-key stringify so JSONB
+        // round-trip through the DB (which may reorder object keys) does not
+        // produce false positives.
+        const sortedStr = (v: unknown) =>
+          v == null ? "null" : JSON.stringify(v, Object.keys(v as object).sort())
+        const changed =
+          newStatus !== row.status ||
+          sortedStr(newDetails) !== sortedStr(row.details)
+        if (!changed) return
+
+        await upsertJobRun(db, {
+          name: row.name,
+          namespace: row.namespace,
+          kind: row.kind,
+          param: row.param,
+          status: newStatus,
+          details: newDetails,
+        })
+
+        console.log(`[job-poller] ${row.name}: ${row.status} → ${newStatus}`)
+      } catch (err) {
+        // jobshot unreachable — leave row untouched, retry next tick
+        console.warn(`[job-poller] could not poll ${row.name}:`, err)
+      }
+    }),
+  )
 }
 
 // ── pgloader job spec builder ─────────────────────────────────────────────────
@@ -376,7 +513,24 @@ export function registerJobsRoutes(admin: Hono) {
     const jobSpec = buildJobSpec(dataset, uploadId)
     try {
       const result = await callJobshotRun(jobSpec)
-      return c.json({ jobName: result.jobName ?? name, namespace: result.namespace ?? "pfire", status: "Running" })
+      const resolvedName = result.jobName ?? name
+      const resolvedNamespace = result.namespace ?? "pfire"
+
+      // Persist Running status to DB so the backend poller can track it and
+      // /status reads from DB rather than proxying jobshot live (D53).
+      if (_db) {
+        await upsertJobRun(_db, {
+          name: resolvedName,
+          namespace: resolvedNamespace,
+          kind: "stooq_import",
+          param: dataset,
+          status: "Running",
+          details: null,
+          startedAt: new Date(),
+        })
+      }
+
+      return c.json({ jobName: resolvedName, namespace: resolvedNamespace, status: "Running" })
     } catch (err: any) {
       const msg = err?.message ?? "Failed to start job"
       if (msg.includes("already running")) {
@@ -394,6 +548,23 @@ export function registerJobsRoutes(admin: Hono) {
     }
 
     const name = jobName(dataset)
+
+    // D53: read from DB (kept fresh by the backend poller). Fall back to a
+    // live jobshot proxy only when the DB is not configured (local dev without
+    // DATABASE_URL) or the job has never been triggered from this backend.
+    if (_db) {
+      const row = await getJobRun(_db, name).catch(() => null)
+      if (row) {
+        return c.json({
+          dataset,
+          jobName: row.name,
+          status: row.status,
+          details: row.details ?? null,
+        })
+      }
+    }
+
+    // Fallback: proxy jobshot live (no DB row yet — job never triggered)
     try {
       const data = await callJobshotStatus(name, "pfire")
       const status = data.exists
