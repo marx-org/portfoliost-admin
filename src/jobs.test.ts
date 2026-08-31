@@ -249,8 +249,8 @@ describe("Stooq import jobs API (N)", () => {
       expect(res.status).toBe(401)
     })
 
-    it("returns all 20 datasets with nulls when instruments not configured", async () => {
-      delete process.env.API_INSTRUMENTS_URL
+    it("returns all 20 datasets with nulls when no DB is configured", async () => {
+      // _db is null in jobs.test.ts (no setJobsDb call) — all-null fallback
       const res = await app.request("/api/admin/jobs/stooq-import/log", {
         headers: adminHeaders,
       })
@@ -258,33 +258,7 @@ describe("Stooq import jobs API (N)", () => {
       const body = await res.json()
       expect(body).toHaveLength(20)
       expect(body[0].latestDate).toBeNull()
-    })
-
-    it("merges instruments log with full dataset list", async () => {
-      process.env.API_INSTRUMENTS_URL = "http://instruments-test:3000"
-      globalThis.fetch = (async () =>
-        new Response(
-          JSON.stringify([
-            { dataset: "daily_us", latestDate: "2026-08-28", importedAt: "2026-08-28T14:32:00Z", rowsDeleted: 142 },
-          ]),
-          { headers: { "content-type": "application/json" } },
-        )) as typeof fetch
-
-      const res = await app.request("/api/admin/jobs/stooq-import/log", {
-        headers: adminHeaders,
-      })
-      expect(res.status).toBe(200)
-      const body = await res.json()
-      expect(body).toHaveLength(20)
-      const usEntry = body.find((e: any) => e.dataset === "daily_us")
-      expect(usEntry.latestDate).toBe("2026-08-28")
-      expect(usEntry.rowsDeleted).toBe(142)
-      const plEntry = body.find((e: any) => e.dataset === "daily_pl")
-      expect(plEntry.latestDate).toBeNull()
-    })
-
-    afterEach(() => {
-      delete process.env.API_INSTRUMENTS_URL
+      expect(body[0].importedAt).toBeNull()
     })
   })
 })
