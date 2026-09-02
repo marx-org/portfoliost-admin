@@ -266,10 +266,10 @@ LOAD ARCHIVE
          period   TEXT          NOT NULL,
          date     DATE          NOT NULL,
          time     TEXT          NOT NULL DEFAULT '000000',
-         open     NUMERIC(20,8),
-         high     NUMERIC(20,8),
-         low      NUMERIC(20,8),
-         close    NUMERIC(20,8),
+         open     NUMERIC(28,8),
+         high     NUMERIC(28,8),
+         low      NUMERIC(28,8),
+         close    NUMERIC(28,8),
          volume   NUMERIC(28,8),
          openint  NUMERIC(28,8)
        ); \\$\\$
