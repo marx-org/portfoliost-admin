@@ -12,13 +12,13 @@ import { jobRun } from "./db/schema.js"
 // ── Dataset catalogue ────────────────────────────────────────────────────────
 
 export const STOOQ_DATASETS = [
-  "daily_world", "hourly_world", "5min_world",
-  "daily_us",    "hourly_us",    "5min_us",
-  "daily_uk",    "hourly_uk",    "5min_uk",
+  "daily_world",
+  "daily_us",
+  "daily_uk",
   "daily_jp",
-  "daily_hk",    "hourly_hk",    "5min_hk",
-  "daily_pl",    "hourly_pl",    "5min_pl",
-  "daily_hu",    "hourly_hu",    "5min_hu",
+  "daily_hk",
+  "daily_pl",
+  "daily_hu",
   "daily_macro",
 ] as const
 

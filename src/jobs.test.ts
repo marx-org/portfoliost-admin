@@ -85,15 +85,15 @@ describe("Stooq import jobs API (N)", () => {
       expect(written).toBe(true)
     })
 
-    it("accepts all 20 valid datasets", async () => {
+    it("accepts all 8 valid datasets", async () => {
       const datasets = [
-        "daily_world", "hourly_world", "5min_world",
-        "daily_us", "hourly_us", "5min_us",
-        "daily_uk", "hourly_uk", "5min_uk",
+        "daily_world",
+        "daily_us",
+        "daily_uk",
         "daily_jp",
-        "daily_hk", "hourly_hk", "5min_hk",
-        "daily_pl", "hourly_pl", "5min_pl",
-        "daily_hu", "hourly_hu", "5min_hu",
+        "daily_hk",
+        "daily_pl",
+        "daily_hu",
         "daily_macro",
       ]
       for (const dataset of datasets) {
@@ -249,14 +249,14 @@ describe("Stooq import jobs API (N)", () => {
       expect(res.status).toBe(401)
     })
 
-    it("returns all 20 datasets with nulls when no DB is configured", async () => {
+    it("returns all 8 datasets with nulls when no DB is configured", async () => {
       // _db is null in jobs.test.ts (no setJobsDb call) — all-null fallback
       const res = await app.request("/api/admin/jobs/stooq-import/log", {
         headers: adminHeaders,
       })
       expect(res.status).toBe(200)
       const body = await res.json()
-      expect(body).toHaveLength(20)
+      expect(body).toHaveLength(8)
       expect(body[0].latestDate).toBeNull()
       expect(body[0].importedAt).toBeNull()
     })
