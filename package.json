@@ -23,7 +23,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.3.14",
-    "@marx2/contracts": "^1.6.0",
+    "@marx2/contracts": "^1.6.2",
     "@types/node": "^22.0.0",
     "drizzle-kit": "^0.31.10",
     "openapi-typescript": "^7.13.0",

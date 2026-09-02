@@ -272,7 +272,7 @@ describe("GET /api/admin/jobs/stooq-import/log — reads job_run (D53)", () => {
     setJobsDb(null as any)
   })
 
-  it("returns all 20 datasets; triggered ones show importedAt from started_at", async () => {
+  it("returns all 8 datasets; triggered ones show importedAt from started_at", async () => {
     const { db } = await createTestDb()
     setJobsDb(db as any)
 
@@ -297,7 +297,7 @@ describe("GET /api/admin/jobs/stooq-import/log — reads job_run (D53)", () => {
     })
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body).toHaveLength(20)
+    expect(body).toHaveLength(8)
 
     const plEntry = body.find((e: any) => e.dataset === "daily_pl")
     expect(plEntry.importedAt).toBe("2026-08-31T22:00:00.000Z")
