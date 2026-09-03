@@ -781,6 +781,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/instruments/{symbol}/price-bars": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Instrument symbol, e.g. AAPL or AAPL.US */
+                symbol: components["parameters"]["symbol"];
+            };
+            cookie?: never;
+        };
+        /** Daily close-price series for a symbol over a date range (stooq + overflow) */
+        get: operations["getPriceBars"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/instruments/{symbol}/investor-relations": {
         parameters: {
             query?: never;
@@ -1714,6 +1734,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/market-data/split-candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List split candidates (pending first, then history) */
+        get: operations["listSplitCandidates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/market-data/split-candidates/{symbol}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply a split adjustment factor for a symbol */
+        post: operations["applySplitCandidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/market-data/split-candidates/{symbol}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Dismiss a pending split candidate */
+        post: operations["dismissSplitCandidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/market-data/overflow-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Summary of price_bars overflow table (total rows + top 10 symbols) */
+        get: operations["getOverflowSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/instruments/{symbol}/internal/stooq-imported": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post-import hook — clean overflow rows superseded by fresh stooq data */
+        post: operations["stooqImported"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/users": {
         parameters: {
             query?: never;
@@ -2331,6 +2436,14 @@ export interface components {
             price?: number;
             currency?: string;
         };
+        PriceBarSeries: {
+            symbol: string;
+            timeframe: string;
+            stale: boolean;
+            currency?: string | null;
+            dates: string[];
+            closes: number[];
+        };
         InvestorRelationEvent: {
             type?: string;
             id?: string;
@@ -2550,6 +2663,9 @@ export interface components {
             logo?: string | null;
         };
         PortfolioAnalytics: {
+            /** @enum {string|null} */
+            backfillStatus?: "pending" | "complete" | "failed" | null;
+            timeframe?: string;
             performance?: {
                 totalValue?: number;
                 totalInvested?: number;
@@ -3040,6 +3156,30 @@ export interface components {
             importedAt?: string | null;
             /** @description Overflow rows cleaned up in the last run (written by post-import hook) */
             rowsDeleted?: number | null;
+        };
+        /** @description Detected price discontinuity at the stooq/overflow boundary awaiting admin review. */
+        SplitCandidate: {
+            symbol: string;
+            /** Format: date */
+            detectedAt: string;
+            /** Format: date */
+            lastStooqDate?: string | null;
+            lastStooqClose?: string | null;
+            /** Format: date */
+            firstOverflowDate?: string | null;
+            firstOverflowClose?: string | null;
+            ratio?: string | null;
+            suggestedFactor?: string | null;
+            suggestedRatio?: string | null;
+            /** @enum {string} */
+            status: "pending" | "applied" | "dismissed";
+        };
+        OverflowSummary: {
+            total: number;
+            topSymbols: {
+                symbol: string;
+                rowCount: number;
+            }[];
         };
         AdminUser: {
             /**
@@ -4123,6 +4263,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HistoricalPrice"];
+                };
+            };
+        };
+    };
+    getPriceBars: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+            };
+            header?: never;
+            path: {
+                /** @description Instrument symbol, e.g. AAPL or AAPL.US */
+                symbol: components["parameters"]["symbol"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Daily close-price series */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PriceBarSeries"];
                 };
             };
         };
@@ -5565,6 +5731,139 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StooqImportLogEntry"][];
+                };
+            };
+        };
+    };
+    listSplitCandidates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Split candidates list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SplitCandidate"][];
+                };
+            };
+        };
+    };
+    applySplitCandidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                symbol: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Split adjustment factor (e.g. 0.25 for 4:1) */
+                    factor: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Applied */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ok?: boolean;
+                        symbol?: string;
+                        factor?: number;
+                        /** Format: date */
+                        detectedAt?: string;
+                    };
+                };
+            };
+        };
+    };
+    dismissSplitCandidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                symbol: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dismissed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ok?: boolean;
+                        symbol?: string;
+                    };
+                };
+            };
+        };
+    };
+    getOverflowSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Overflow summary */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverflowSummary"];
+                };
+            };
+        };
+    };
+    stooqImported: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    dataset: components["schemas"]["StooqDataset"];
+                    jobName: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Cleanup result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        dataset?: components["schemas"]["StooqDataset"];
+                        /** Format: date */
+                        latestDate?: string | null;
+                        rowsDeleted?: number;
+                        candidatesDismissed?: number;
+                    };
                 };
             };
         };
