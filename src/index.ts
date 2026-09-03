@@ -3,6 +3,7 @@ import { logger } from "hono/logger"
 import { validateJwt, userIdentityMiddleware, requireGroup } from "./auth.js"
 import { moduleMeta } from "./meta.js"
 import { registerJobsRoutes } from "./jobs.js"
+import { registerMarketDataRoutes, setMarketDataDb } from "./market-data.js"
 import type { components } from "./generated/api-types"
 
 type AdminUser = components["schemas"]["AdminUser"]
@@ -194,6 +195,7 @@ async function fetchPocketIdUsers(): Promise<Map<string, PocketIdIdentity>> {
 
 // N — stooq import jobs
 registerJobsRoutes(admin)
+registerMarketDataRoutes(admin)
 
 app.route("/api/admin", admin)
 

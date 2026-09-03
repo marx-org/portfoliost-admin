@@ -223,6 +223,20 @@ async function pollActiveJobs(db: DB): Promise<void> {
           details: newDetails,
         })
 
+        // H10: when a stooq import job succeeds, call the instruments post-import hook
+        // to clean up superseded overflow rows and write latestDate/rowsDeleted back.
+        if (newStatus === "Succeeded" && row.kind === "stooq_import" && row.param) {
+          const instrBase = (process.env.API_INSTRUMENTS_URL ?? "").replace(/\/$/, "")
+          if (instrBase) {
+            fetch(`${instrBase}/internal/stooq-imported`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ dataset: row.param, jobName: row.name }),
+              signal: AbortSignal.timeout(30_000),
+            }).catch((err) => console.warn("[job-poller] stooq-imported hook failed:", err))
+          }
+        }
+
         console.log(`[job-poller] ${row.name}: ${row.status} → ${newStatus}`)
       } catch (err) {
         // jobshot unreachable — leave row untouched, retry next tick
