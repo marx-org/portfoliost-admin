@@ -2699,11 +2699,14 @@ export interface components {
                 }[];
             };
             benchmarks?: {
+                symbol?: string;
                 name?: string;
                 timeSeries?: {
                     date?: string;
                     value?: number;
                 }[];
+                returnPercent?: number;
+                volatility?: number;
             }[];
             portfolioCurrency?: string;
             realizedGain?: number;
@@ -3228,6 +3231,10 @@ export interface components {
         timeframe: "1D" | "5D" | "1M" | "3M" | "6M" | "YTD" | "1Y" | "2Y" | "3Y" | "5Y" | "ALL";
         /** @description Benchmark symbol to overlay (e.g. SPY) */
         benchmark: string;
+        /** @description Comma-separated benchmark symbols to overlay (e.g. SPY,QQQ) */
+        benchmarks: string;
+        /** @description Return-type calculation used for benchmark series and the authoritative portfolio return line (default timeWeighted) */
+        benchmarkCalcType: "moneyWeighted" | "timeWeighted" | "simple";
     };
     requestBodies: never;
     headers: never;
@@ -4679,6 +4686,10 @@ export interface operations {
                 timeframe?: components["parameters"]["timeframe"];
                 /** @description Benchmark symbol to overlay (e.g. SPY) */
                 benchmark?: components["parameters"]["benchmark"];
+                /** @description Comma-separated benchmark symbols to overlay (e.g. SPY,QQQ) */
+                benchmarks?: components["parameters"]["benchmarks"];
+                /** @description Return-type calculation used for benchmark series and the authoritative portfolio return line (default timeWeighted) */
+                benchmarkCalcType?: components["parameters"]["benchmarkCalcType"];
             };
             header?: never;
             path: {
