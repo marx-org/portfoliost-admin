@@ -8,5 +8,7 @@ CREATE TABLE "admin"."job_run" (
 	"status" text NOT NULL,
 	"details" jsonb,
 	"started_at" timestamp with time zone,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"latest_date" date,
+	"rows_deleted" integer
 );
