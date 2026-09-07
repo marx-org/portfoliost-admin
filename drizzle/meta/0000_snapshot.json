@@ -1,5 +1,5 @@
 {
-  "id": "f2812aad-f4cc-478e-adae-5bed24e28bde",
+  "id": "a54670a3-d570-4528-b638-12fd4532a006",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -57,6 +57,18 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "latest_date": {
+          "name": "latest_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rows_deleted": {
+          "name": "rows_deleted",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {},
