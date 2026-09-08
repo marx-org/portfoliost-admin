@@ -1323,6 +1323,103 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/labels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List all labels for the authenticated user */
+        get: operations["listLabels"];
+        put?: never;
+        /** Create a label */
+        post: operations["createLabel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/labels/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a label */
+        delete: operations["deleteLabel"];
+        options?: never;
+        head?: never;
+        /** Update a label */
+        patch: operations["updateLabel"];
+        trace?: never;
+    };
+    "/positions/{positionId}/labels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                positionId: components["parameters"]["positionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set labels on a position (replace semantics) */
+        post: operations["setPositionLabels"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/portfolios/{id}/transactions/{transactionId}/labels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["portfolioId"];
+                transactionId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set labels on a portfolio transaction (replace semantics) */
+        post: operations["setTransactionLabels"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/wallets/{walletId}/transactions/{transactionId}/labels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["walletId"];
+                transactionId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set labels on a wallet transaction (replace semantics) */
+        post: operations["setWalletTransactionLabels"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/currencies": {
         parameters: {
             query?: never;
@@ -1832,6 +1929,27 @@ export interface paths {
          *     identity (email, name) resolved from the identity provider.
          */
         get: operations["listAdminUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/currencies/rates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Page through EUR-based FX reference rates with filters
+         * @description Admin-facing list of ECB reference rates (base is always EUR).
+         *     Sorting, filtering and pagination are all server-side.
+         */
+        get: operations["listAdminFxRates"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2453,6 +2571,8 @@ export interface components {
             quarter?: number | null;
             symbol?: string;
             audioUrl?: string | null;
+            reportUrl?: string | null;
+            formType?: string | null;
         };
         IRTranscript: {
             id?: string;
@@ -2461,9 +2581,17 @@ export interface components {
             quarter?: number | null;
             title?: string;
             time?: string | null;
-            participant?: Record<string, never>[];
+            participant?: components["schemas"]["IRTranscriptParticipant"][];
             audio?: string | null;
-            transcript?: Record<string, never>[];
+            transcript?: components["schemas"]["IRTranscriptBlock"][];
+            body?: string | null;
+        };
+        IRTranscriptParticipant: {
+            name?: string;
+        };
+        IRTranscriptBlock: {
+            name?: string;
+            speech?: string[];
         };
         ResearchCompare: {
             symbol?: string;
@@ -2661,6 +2789,22 @@ export interface components {
             };
             displayCurrency: string;
             logo?: string | null;
+            labels?: components["schemas"]["Label"][];
+        };
+        Label: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            color: string;
+            /** Format: date-time */
+            createdAt?: string;
+        };
+        LabelInput: {
+            name: string;
+            color?: string;
+        };
+        SetLabelsRequest: {
+            labelIds: string[];
         };
         PortfolioAnalytics: {
             /** @enum {string|null} */
@@ -2887,6 +3031,7 @@ export interface components {
             convertedRealizedGainLoss?: number | null;
             sector?: string;
             country?: string;
+            labels?: components["schemas"]["Label"][];
         };
         FeeFxFields: {
             /** @description Transaction-currency -> display/base-currency rate. Null when rates equal. Manual values are user-provided truth; automatic are resolved by the system at write time. */
@@ -3031,6 +3176,7 @@ export interface components {
             new_balance?: number | null;
             remaining_balance?: number | null;
             walletName?: string | null;
+            labels?: components["schemas"]["Label"][];
         };
         RecentCashTransaction: {
             /** Format: uuid */
@@ -3059,6 +3205,7 @@ export interface components {
             /** @enum {string|null} */
             feeRateSource?: "automatic" | "manual" | null;
             feeExchangeRate?: number | null;
+            labels?: components["schemas"]["Label"][];
         };
         RecentCashTransactionsPage: {
             data?: components["schemas"]["RecentCashTransaction"][];
@@ -3187,6 +3334,12 @@ export interface components {
                 rowCount: number;
             }[];
         };
+        AdminPagination: {
+            total: number;
+            page: number;
+            per_page: number;
+            total_pages: number;
+        };
         AdminUser: {
             /**
              * Format: uuid
@@ -3209,12 +3362,21 @@ export interface components {
         };
         AdminUserListResponse: {
             items: components["schemas"]["AdminUser"][];
-            pagination: {
-                total: number;
-                page: number;
-                per_page: number;
-                total_pages: number;
-            };
+            pagination: components["schemas"]["AdminPagination"];
+        };
+        AdminFxRate: {
+            /**
+             * Format: date
+             * @description ECB reference rate date (EUR-based)
+             */
+            date: string;
+            baseCurrency: string;
+            quoteCurrency: string;
+            rate: number;
+        };
+        AdminFxRatesResponse: {
+            items: components["schemas"]["AdminFxRate"][];
+            pagination: components["schemas"]["AdminPagination"];
         };
     };
     responses: never;
@@ -4573,6 +4735,8 @@ export interface operations {
                 limit?: components["parameters"]["limit"];
                 sortBy?: string;
                 sortOrder?: "asc" | "desc";
+                /** @description Comma-separated label ids; AND filter (entity must have all) */
+                labels?: string;
             };
             header?: never;
             path?: never;
@@ -4715,7 +4879,10 @@ export interface operations {
     };
     getPositions: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Comma-separated label ids; AND filter (entity must have all) */
+                labels?: string;
+            };
             header?: never;
             path: {
                 id: components["parameters"]["portfolioId"];
@@ -4866,6 +5033,8 @@ export interface operations {
                 limit?: components["parameters"]["limit"];
                 type?: string;
                 positionId?: string;
+                /** @description Comma-separated label ids; AND filter (entity must have all) */
+                labels?: string;
             };
             header?: never;
             path: {
@@ -5094,6 +5263,176 @@ export interface operations {
             };
         };
     };
+    listLabels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Labels */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    createLabel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LabelInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Label"];
+                };
+            };
+        };
+    };
+    deleteLabel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateLabel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["LabelInput"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Label"];
+                };
+            };
+        };
+    };
+    setPositionLabels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                positionId: components["parameters"]["positionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetLabelsRequest"];
+            };
+        };
+        responses: {
+            /** @description Labels set */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    setTransactionLabels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["portfolioId"];
+                transactionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetLabelsRequest"];
+            };
+        };
+        responses: {
+            /** @description Labels set */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    setWalletTransactionLabels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["walletId"];
+                transactionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetLabelsRequest"];
+            };
+        };
+        responses: {
+            /** @description Labels set */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     listCurrencies: {
         parameters: {
             query?: never;
@@ -5286,7 +5625,12 @@ export interface operations {
     };
     getCashTransactions: {
         parameters: {
-            query?: never;
+            query?: {
+                page?: number;
+                limit?: number;
+                /** @description Comma-separated label ids; AND filter (entity must have all) */
+                labels?: string;
+            };
             header?: never;
             path: {
                 id: components["parameters"]["walletId"];
@@ -5902,6 +6246,53 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminUserListResponse"];
+                };
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not a portfoliost_admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listAdminFxRates: {
+        parameters: {
+            query?: {
+                page?: number;
+                per_page?: number;
+                sort_by?: "date" | "base_currency" | "quote_currency" | "rate";
+                sort_dir?: "asc" | "desc";
+                base_currency?: string;
+                quote_currency?: string;
+                date_from?: string;
+                date_to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated FX rate list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminFxRatesResponse"];
                 };
             };
             /** @description Missing or invalid token */
