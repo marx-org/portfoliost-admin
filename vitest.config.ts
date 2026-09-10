@@ -4,10 +4,8 @@ export default defineConfig({
   test: {
     globals: true,
     pool: "forks",
-    poolOptions: {
-      forks: {
-        singleFork: true,
-      },
+    forks: {
+      singleFork: true,
     },
     exclude: ["dist/**", "node_modules/**"],
   },
