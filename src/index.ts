@@ -4,7 +4,7 @@ import { validateJwt, userIdentityMiddleware, requireGroup } from "./auth.js"
 import { moduleMeta } from "./meta.js"
 import { registerJobsRoutes } from "./jobs.js"
 import { registerMarketDataRoutes, setMarketDataDb } from "./market-data.js"
-import { listJobVersions } from "./jobs-version.js"
+import { listJobVersions, listServiceImages } from "./jobs-version.js"
 import type { components } from "./generated/api-types"
 
 type AdminUser = components["schemas"]["AdminUser"]
@@ -43,9 +43,9 @@ admin.get("/system/versions", async (c) => {
         const res = await fetch(`${svc.url}/__meta`, { signal: AbortSignal.timeout(3000) })
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const meta = await res.json() as { service: string; impl: string; version: string }
-        return { service: meta.service ?? svc.name, version: meta.version, impl: meta.impl }
+        return { svcName: svc.name, service: meta.service ?? svc.name, version: meta.version, impl: meta.impl }
       } catch {
-        return { service: svc.name, version: "unreachable", impl: "unknown" }
+        return { svcName: svc.name, service: svc.name, version: "unreachable", impl: "unknown" }
       }
     }),
   )
@@ -54,7 +54,15 @@ admin.get("/system/versions", async (c) => {
   // image ref currently pinned in the cluster (read live from the k8s API).
   const jobs = (await listJobVersions()).map((j) => ({ service: j.name, version: j.version, impl: j.impl }))
 
-  return c.json({ services: [...results, ...jobs], fetchedAt: new Date().toISOString() })
+  // Service pods are Deployments too — attach the full image ref so the SPA
+  // can show "version + image" consistently with the job entries.
+  const images = new Map((await listServiceImages()).map((d) => [d.name, d.image]))
+  const servicesOut = results.map(({ svcName, ...r }) => {
+    const image = images.get(svcName)
+    return image ? { ...r, image } : r
+  })
+
+  return c.json({ services: [...servicesOut, ...jobs], fetchedAt: new Date().toISOString() })
 })
 
 // D47 — proxy to wallets admin FX rates

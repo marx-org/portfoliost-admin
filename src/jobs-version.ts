@@ -6,6 +6,11 @@ export interface JobVersion {
   impl: "job"
 }
 
+export interface DeploymentImage {
+  name: string
+  image: string
+}
+
 const NAMESPACE = process.env.K8S_NAMESPACE ?? "pfire"
 
 // Job containers that are part of the portfoliost set but run on their own
@@ -18,6 +23,43 @@ const CRONJOBS = [
   "stooq-importer",
 ]
 
+// API service deployments in the portfoliost set (long-running pods behind
+// the ingress). Read so the System tab can show the full image ref next to
+// the /__meta version, matching the job entries.
+const SERVICE_DEPLOYMENTS = [
+  "portfoliost-admin",
+  "portfoliost-users-auth",
+  "portfoliost-wallets",
+  "portfoliost-instruments",
+  "openst",
+  "cachest",
+]
+
+async function listDeployments(): Promise<Map<string, string>> {
+  const kc = new KubeConfig()
+  kc.loadFromCluster()
+  const apps = kc.makeApiClient(AppsV1Api)
+  const list = await apps.listNamespacedDeployment({ namespace: NAMESPACE })
+  const map = new Map<string, string>()
+  for (const d of list.items) {
+    const image = d.spec?.template?.spec?.containers?.[0]?.image
+    if (image) map.set(d.metadata?.name ?? "", image)
+  }
+  return map
+}
+
+export async function listServiceImages(): Promise<DeploymentImage[]> {
+  if (!process.env.KUBERNETES_SERVICE_HOST) {
+    return [] // not running in-cluster (local dev / unit tests)
+  }
+  try {
+    const byName = await listDeployments()
+    return SERVICE_DEPLOYMENTS.filter((n) => byName.has(n)).map((n) => ({ name: n, image: byName.get(n)! }))
+  } catch {
+    return [] // no RBAC for deployments -> images degrade silently
+  }
+}
+
 export async function listJobVersions(): Promise<JobVersion[]> {
   if (!process.env.KUBERNETES_SERVICE_HOST) {
     return [] // not running in-cluster (local dev / unit tests)
@@ -27,7 +69,6 @@ export async function listJobVersions(): Promise<JobVersion[]> {
   kc.loadFromCluster()
 
   const batch = kc.makeApiClient(BatchV1Api)
-  const apps = kc.makeApiClient(AppsV1Api)
 
   const results: JobVersion[] = []
 
@@ -44,7 +85,7 @@ export async function listJobVersions(): Promise<JobVersion[]> {
   }
 
   try {
-    const deploy = await apps.readNamespacedDeployment({ name: "jobshot", namespace: NAMESPACE })
+    const deploy = await kc.makeApiClient(AppsV1Api).readNamespacedDeployment({ name: "jobshot", namespace: NAMESPACE })
     const image = deploy.spec?.template?.spec?.containers?.[0]?.image
     if (image) results.push({ name: "jobshot", version: image, impl: "job" })
   } catch {
