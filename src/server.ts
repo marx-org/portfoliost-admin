@@ -1,4 +1,5 @@
 import { serve } from "@hono/node-server"
+import "./instrumentation.js"
 import app from "./index.js"
 import { getDb } from "./db/index.js"
 import { startJobPoller } from "./jobs.js"
