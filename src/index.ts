@@ -4,6 +4,7 @@ import { validateJwt, userIdentityMiddleware, requireGroup } from "./auth.js"
 import { moduleMeta } from "./meta.js"
 import { registerJobsRoutes } from "./jobs.js"
 import { registerMarketDataRoutes, setMarketDataDb } from "./market-data.js"
+import { listJobVersions } from "./jobs-version.js"
 import type { components } from "./generated/api-types"
 
 type AdminUser = components["schemas"]["AdminUser"]
@@ -49,7 +50,11 @@ admin.get("/system/versions", async (c) => {
     }),
   )
 
-  return c.json({ services: results, fetchedAt: new Date().toISOString() })
+  // Jobs run as standalone containers in the portfoliost set — report the
+  // image ref currently pinned in the cluster (read live from the k8s API).
+  const jobs = (await listJobVersions()).map((j) => ({ service: j.name, version: j.version, impl: j.impl }))
+
+  return c.json({ services: [...results, ...jobs], fetchedAt: new Date().toISOString() })
 })
 
 // D47 — proxy to wallets admin FX rates

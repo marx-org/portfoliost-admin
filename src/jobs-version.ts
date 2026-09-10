@@ -1,0 +1,55 @@
+import { KubeConfig, BatchV1Api, AppsV1Api } from "@kubernetes/client-node"
+
+export interface JobVersion {
+  name: string
+  version: string
+  impl: "job"
+}
+
+const NAMESPACE = process.env.K8S_NAMESPACE ?? "pfire"
+
+// Job containers that are part of the portfoliost set but run on their own
+// schedule (CronJobs or a long-running runner) rather than as API services.
+// Their "version" is the image ref currently pinned by Flux.
+const CRONJOBS = [
+  "portfoliost-wallets-fxsync",
+  "portfoliost-instruments-tickersync",
+  "stooq-downloader",
+  "stooq-importer",
+]
+
+export async function listJobVersions(): Promise<JobVersion[]> {
+  if (!process.env.KUBERNETES_SERVICE_HOST) {
+    return [] // not running in-cluster (local dev / unit tests)
+  }
+
+  const kc = new KubeConfig()
+  kc.loadFromCluster()
+
+  const batch = kc.makeApiClient(BatchV1Api)
+  const apps = kc.makeApiClient(AppsV1Api)
+
+  const results: JobVersion[] = []
+
+  try {
+    const list = await batch.listNamespacedCronJob({ namespace: NAMESPACE })
+    const byName = new Map(list.items.map((cj) => [cj.metadata?.name, cj]))
+    for (const name of CRONJOBS) {
+      const rows = byName.get(name)?.spec?.jobTemplate?.spec?.template?.spec?.containers
+      const image = rows?.[0]?.image
+      if (image) results.push({ name, version: image, impl: "job" })
+    }
+  } catch {
+    // no RBAC for cronjobs -> jobs section simply degrades
+  }
+
+  try {
+    const deploy = await apps.readNamespacedDeployment({ name: "jobshot", namespace: NAMESPACE })
+    const image = deploy.spec?.template?.spec?.containers?.[0]?.image
+    if (image) results.push({ name: "jobshot", version: image, impl: "job" })
+  } catch {
+    // no RBAC for deployments -> degrade silently
+  }
+
+  return results
+}
