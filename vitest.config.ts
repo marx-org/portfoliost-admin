@@ -9,5 +9,6 @@ export default defineConfig({
         singleFork: true,
       },
     },
+    exclude: ["dist/**", "node_modules/**"],
   },
 })

@@ -1,5 +1,12 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, vi } from "vitest"
 import app from "./index.js"
+
+vi.mock("./jobs-version.js", () => ({
+  listJobVersions: vi.fn(async () => [
+    { name: "portfoliost-wallets-fxsync", version: "ghcr.io/marx2/portfoliost-wallets:v1.1.28", impl: "job" },
+    { name: "jobshot", version: "ghcr.io/marx2/jobshot:1.6.1", impl: "job" },
+  ]),
+}))
 
 describe("GET /health", () => {
   it("returns status ok", async () => {
@@ -264,6 +271,26 @@ describe("Admin API authorization (D50)", () => {
       else process.env.API_OPENST_URL = prevOpen
       if (prevCache === undefined) delete process.env.API_CACHEST_URL
       else process.env.API_CACHEST_URL = prevCache
+    }
+  })
+
+  it("appends job container versions tagged as 'job'", async () => {
+    const origFetch = globalThis.fetch
+    globalThis.fetch = (async () => new Response("Not Found", { status: 404 })) as typeof fetch
+    try {
+      const res = await app.request("/api/admin/system/versions", {
+        headers: {
+          "X-User-Id": "admin-1",
+          "X-User-Email": "admin@example.com",
+          "X-User-Groups": "portfoliost_admin",
+        },
+      })
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      const jobs = (body.services as { service: string; impl: string }[]).filter((s) => s.impl === "job")
+      expect(jobs.map((j) => j.service)).toEqual(["portfoliost-wallets-fxsync", "jobshot"])
+    } finally {
+      globalThis.fetch = origFetch
     }
   })
 })
