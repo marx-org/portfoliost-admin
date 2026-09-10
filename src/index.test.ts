@@ -6,6 +6,10 @@ vi.mock("./jobs-version.js", () => ({
     { name: "portfoliost-wallets-fxsync", version: "ghcr.io/marx2/portfoliost-wallets:v1.1.28", impl: "job" },
     { name: "jobshot", version: "ghcr.io/marx2/jobshot:1.6.1", impl: "job" },
   ]),
+  listServiceImages: vi.fn(async () => [
+    { name: "portfoliost-admin", image: "ghcr.io/marx2/portfoliost-admin:v1.0.36" },
+    { name: "openst", image: "ghcr.io/marx2/openst:v1.0.18" },
+  ]),
 }))
 
 describe("GET /health", () => {
@@ -263,7 +267,7 @@ describe("Admin API authorization (D50)", () => {
       const services = body.services as { service: string; version: string; impl: string }[]
       const openst = services.find((s) => s.service === "openst")
       const cachest = services.find((s) => s.service === "cachest")
-      expect(openst).toEqual({ service: "openst", version: "1.0.18", impl: "real" })
+      expect(openst).toEqual({ service: "openst", version: "1.0.18", impl: "real", image: "ghcr.io/marx2/openst:v1.0.18" })
       expect(cachest).toEqual({ service: "cachest", version: "1.0.21", impl: "real" })
     } finally {
       globalThis.fetch = origFetch
