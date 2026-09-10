@@ -49,9 +49,6 @@ admin.get("/system/versions", async (c) => {
     }),
   )
 
-  // Also try stoxly-mock (no /__meta — mark as mock)
-  results.push({ service: "stoxly-mock", version: "1.0.0", impl: "mock" })
-
   return c.json({ services: results, fetchedAt: new Date().toISOString() })
 })
 
