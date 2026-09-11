@@ -4,6 +4,8 @@ import { validateJwt, userIdentityMiddleware, requireGroup } from "./auth.js"
 import { moduleMeta } from "./meta.js"
 import { registerJobsRoutes } from "./jobs.js"
 import { registerMarketDataRoutes, setMarketDataDb } from "./market-data.js"
+import { registerTopologyRoutes } from "./topology.js"
+import { probeServiceMetas } from "./service-probe.js"
 import { listJobVersions, listServiceImages } from "./jobs-version.js"
 import { metricsRouteHandler } from "./instrumentation.js"
 import type { components } from "./generated/api-types"
@@ -42,27 +44,7 @@ admin.use("*", userIdentityMiddleware, requireGroup("portfoliost_admin"))
 
 // D46 — system versions: aggregate /__meta from all modules
 admin.get("/system/versions", async (c) => {
-  const services = [
-    { name: "portfoliost-admin", url: `http://localhost:${process.env.PORT ?? 3000}` },
-    { name: "portfoliost-users-auth", url: process.env.API_USERS_AUTH_URL },
-    { name: "portfoliost-wallets", url: process.env.API_WALLETS_URL },
-    { name: "portfoliost-instruments", url: process.env.API_INSTRUMENTS_URL },
-    { name: "openst", url: process.env.API_OPENST_URL },
-    { name: "cachest", url: process.env.API_CACHEST_URL },
-  ].filter((s) => s.url)
-
-  const results = await Promise.all(
-    services.map(async (svc) => {
-      try {
-        const res = await fetch(`${svc.url}/__meta`, { signal: AbortSignal.timeout(3000) })
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        const meta = await res.json() as { service: string; impl: string; version: string }
-        return { svcName: svc.name, service: meta.service ?? svc.name, version: meta.version, impl: meta.impl }
-      } catch {
-        return { svcName: svc.name, service: svc.name, version: "unreachable", impl: "unknown" }
-      }
-    }),
-  )
+  const results = await probeServiceMetas()
 
   // Jobs run as standalone containers in the portfoliost set — report the
   // image ref currently pinned in the cluster (read live from the k8s API).
@@ -71,7 +53,7 @@ admin.get("/system/versions", async (c) => {
   // Service pods are Deployments too — attach the full image ref so the SPA
   // can show "version + image" consistently with the job entries.
   const images = new Map((await listServiceImages()).map((d) => [d.name, d.image]))
-  const servicesOut = results.map(({ svcName, ...r }) => {
+  const servicesOut = results.map(({ name: svcName, reachable: _reachable, ...r }) => {
     const image = images.get(svcName)
     return image ? { ...r, image } : r
   })
@@ -220,6 +202,7 @@ async function fetchPocketIdUsers(): Promise<Map<string, PocketIdIdentity>> {
 // N — stooq import jobs
 registerJobsRoutes(admin)
 registerMarketDataRoutes(admin)
+registerTopologyRoutes(admin)
 
 app.route("/api/admin", admin)
 
