@@ -3379,6 +3379,54 @@ export interface components {
             items: components["schemas"]["AdminFxRate"][];
             pagination: components["schemas"]["AdminPagination"];
         };
+        TopologyStatusResponse: {
+            services: components["schemas"]["TopologyServiceStatus"][];
+            /**
+             * Format: date-time
+             * @description ISO-8601 timestamp of the status fetch
+             */
+            fetchedAt: string;
+        };
+        TopologyServiceStatus: {
+            /** @description Deployment name (matches the topology graph node id) */
+            name: string;
+            /** @description Whether /__meta responded within 3 s */
+            reachable: boolean;
+            /** @enum {string} */
+            impl: "real" | "mock" | "unknown" | "job";
+            version?: string;
+            replicas?: {
+                desired: number;
+                ready: number;
+            } | null;
+            restarts?: number | null;
+        };
+        TopologyTrafficResponse: {
+            services: components["schemas"]["TopologyServiceTraffic"][];
+            cachestProviders: {
+                /** @description cachest outbound server_address label, e.g. openst or alphavantage.co */
+                provider: string;
+                p99LatencyMs: number;
+            }[];
+            /**
+             * Format: date-time
+             * @description ISO-8601 timestamp of the traffic fetch
+             */
+            fetchedAt: string;
+        };
+        TopologyServiceTraffic: {
+            /** @description Service name (matches the topology graph node id) */
+            name: string;
+            requestsPerMin: number;
+            /** @description Fraction of requests returning 4xx/5xx (0–1) */
+            errorRate: number;
+            p99LatencyMs: number;
+            /**
+             * @description Metric source used (otel when D56 metrics present, ingress fallback, none when Prometheus unavailable)
+             * @enum {string}
+             */
+            source: "otel" | "ingress" | "none";
+        };
     };
     responses: never;
     parameters: {
