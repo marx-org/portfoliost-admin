@@ -15,6 +15,7 @@ const ENV_KEYS = [
   "API_CACHEST_URL",
   "PROMETHEUS_URL",
   "K8S_NAMESPACE",
+  "INGRESS_APP_HOST",
 ] as const
 
 function setServiceEnv() {
@@ -337,6 +338,84 @@ describe("GET /api/admin/topology/traffic (D55)", () => {
 
       // OTel client histogram absent → no providers
       expect(body.cachestProviders).toEqual([])
+    } finally {
+      orig.restore()
+    }
+  })
+
+  it("resolves OTel metrics via the job label when service_name is absent", async () => {
+    // The homelab cluster exporter emits `job` (matching the node id), not the
+    // OTel `service_name` resource attribute → the service_name query is empty
+    // and the label-preference probe falls back to `job`.
+    setServiceEnv()
+    process.env.PROMETHEUS_URL = "http://prom.example:9090"
+    const orig = mockFetch(
+      { service: "svc", impl: "real", version: "1.2.3" },
+      {
+        "http_server_request_duration_seconds_count[5m])": [
+          { metric: { job: "portfoliost-admin" }, value: [1, "0.5"] }, // 0.5/s → 30/min
+          { metric: { job: "cachest" }, value: [1, "0.2"] },
+        ],
+        "http_response_status_code": [{ metric: { job: "portfoliost-admin" }, value: [1, "0.1"] }], // 0.2 error rate
+        "http_server_request_duration_seconds_bucket": [{ metric: { job: "portfoliost-admin" }, value: [1, "0.25"] }], // 250 ms
+      },
+    )
+    try {
+      const res = await app.request("/api/admin/topology/traffic", { headers: adminHeaders })
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      const services = body.services as Array<Record<string, any>>
+      expect(services.length).toBe(6)
+
+      const admin = services.find((s) => s.name === "portfoliost-admin")!
+      expect(admin.source).toBe("otel")
+      expect(admin.requestsPerMin).toBe(30)
+      expect(admin.errorRate).toBeCloseTo(0.2)
+      expect(admin.p99LatencyMs).toBe(250)
+
+      const cachest = services.find((s) => s.name === "cachest")!
+      expect(cachest.source).toBe("otel")
+      expect(cachest.requestsPerMin).toBe(12)
+
+      expect(body.cachestProviders).toEqual([])
+    } finally {
+      orig.restore()
+    }
+  })
+
+  it("appends the nginx-gateway aggregate when INGRESS_APP_HOST is set", async () => {
+    setServiceEnv()
+    process.env.PROMETHEUS_URL = "http://prom.example:9090"
+    process.env.INGRESS_APP_HOST = "portfoliost.example.com"
+    const orig = mockFetch(
+      { service: "svc", impl: "real", version: "1.2.3" },
+      {
+        // gateway rate — 0.2/s on the app host → 12/min
+        '{host="portfoliost.example.com"}[5m]': [{ metric: { host: "portfoliost.example.com" }, value: [1, "0.2"] }],
+        // gateway error rate
+        '{host="portfoliost.example.com", status=~"4..|5.."}': [{ metric: { host: "portfoliost.example.com" }, value: [1, "0.05"] }],
+        // gateway P99
+        "nginx_ingress_controller_request_duration_seconds_bucket": [{ metric: { host: "portfoliost.example.com" }, value: [1, "0.3"] }],
+      },
+    )
+    try {
+      const res = await app.request("/api/admin/topology/traffic", { headers: adminHeaders })
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      const services = body.services as Array<Record<string, any>>
+      // 6 probed services + the gateway aggregate
+      expect(services.length).toBe(7)
+
+      const gateway = services.find((s) => s.name === "nginx-gateway")!
+      expect(gateway.source).toBe("ingress")
+      expect(gateway.requestsPerMin).toBe(12)
+      expect(gateway.errorRate).toBeCloseTo(0.25)
+      expect(gateway.p99LatencyMs).toBe(300)
+
+      // the probed services have no OTel/ingress-per-service series → none
+      const admin = services.find((s) => s.name === "portfoliost-admin")!
+      expect(admin.source).toBe("none")
+      expect(admin.requestsPerMin).toBe(0)
     } finally {
       orig.restore()
     }

@@ -10,12 +10,18 @@ function namespace(): string {
 }
 
 // ── D56 (OpenTelemetry) server-side queries — preferred source when present ──
-// service.name resource attr is emitted as the `service_name` label.
-const OTEL_RATE_Q = `sum by (service_name) (rate(http_server_request_duration_seconds_count[5m]))`
-const OTEL_ERR_Q =
-  `sum by (service_name) (rate(http_server_request_duration_seconds_count{http_response_status_code=~"4..|5.."}[5m]))`
-const OTEL_P99_Q =
-  `histogram_quantile(0.99, sum by (le, service_name) (rate(http_server_request_duration_seconds_bucket[5m])))`
+// Prometheus setups vary in which label carries the service identity:
+// an OTLP->Prometheus collector best-efforts `service_name` (the OTel
+// `service.name` resource attribute), a plain scrape job uses `job`, and a
+// richer relabelling keeps the K8s `service` label. The exporter in the
+// homelab cluster emits `job` (no `service_name`), so we probe the labels in
+// preference order and stop at the first that yields series.
+const LABEL_PREF: string[] = ["service_name", "job", "service"]
+
+const OTEL_RATE_BASE = `rate(http_server_request_duration_seconds_count[5m])`
+const OTEL_ERR_BASE = `rate(http_server_request_duration_seconds_count{http_response_status_code=~"4..|5.."}[5m])`
+const OTEL_P99_BASE = (label: string) =>
+  `histogram_quantile(0.99, sum by (le, ${label}) (rate(http_server_request_duration_seconds_bucket[5m])))`
 
 // cachest outbound latency per upstream provider (D56-3: httpx instrumented,
 // labelled by server_address, filtered to the cachest service itself).
@@ -33,6 +39,30 @@ function ingressP99Q(): string {
   return `histogram_quantile(0.99, sum by (le, service) (rate(nginx_ingress_controller_request_duration_seconds_bucket{exported_namespace="${namespace()}"}[5m])))`
 }
 
+// nginx-gateway aggregate: the ingress controller exports per-host series
+// (host label = virtual host). Point INGRESS_APP_HOST at the SPA's public host
+// (e.g. "portfoliost.k.homylab.com") to give the gateway node a traffic box.
+function ingressGatewayHost(): string {
+  return process.env.INGRESS_APP_HOST ?? ""
+}
+function gatewayRateQ(): string {
+  return `sum by (host) (rate(nginx_ingress_controller_requests{host="${ingressGatewayHost()}"}[5m]))`
+}
+function gatewayErrQ(): string {
+  return `sum by (host) (rate(nginx_ingress_controller_requests{host="${ingressGatewayHost()}", status=~"4..|5.."}[5m]))`
+}
+function gatewayP99Q(): string {
+  return `histogram_quantile(0.99, sum by (le, host) (rate(nginx_ingress_controller_request_duration_seconds_bucket{host="${ingressGatewayHost()}"}[5m])))`
+}
+
+const EMPTY_RESULT: QueryResult = { map: new Map<string, number>(), ok: false }
+
+function gatewayResults(): Promise<QueryResult>[] {
+  return ingressGatewayHost()
+    ? [queryMap(gatewayRateQ(), "host"), queryMap(gatewayErrQ(), "host"), queryMap(gatewayP99Q(), "host")]
+    : [Promise.resolve(EMPTY_RESULT), Promise.resolve(EMPTY_RESULT), Promise.resolve(EMPTY_RESULT)]
+}
+
 interface QueryResult {
   map: Map<string, number>
   ok: boolean
@@ -48,6 +78,28 @@ async function queryMap(query: string, label: string): Promise<QueryResult> {
     console.error("topology/traffic: Prometheus query failed:", error)
     return { map: new Map<string, number>(), ok: false }
   }
+}
+
+// Run `sum by (<label>) (<base>)` for each label in preference order and return
+// the first label that yields any series. Labels that exist on the exported
+// series produce results; the first with data wins (service_name → job →
+// service), so OTLP setups and plain scrape jobs both resolve.
+async function queryMapByLabel(baseQuery: string): Promise<QueryResult> {
+  for (const label of LABEL_PREF) {
+    const res = await queryMap(`sum by (${label}) (${baseQuery})`, label)
+    if (res.ok && res.map.size > 0) return res
+  }
+  return { map: new Map<string, number>(), ok: false }
+}
+
+// Histogram quantile queries group by `le` plus the identity label, so the
+// preference order is resolved at the query level instead of in code.
+async function queryP99ByLabel(baseQuery: (label: string) => string): Promise<QueryResult> {
+  for (const label of LABEL_PREF) {
+    const res = await queryMap(baseQuery(label), label)
+    if (res.ok && res.map.size > 0) return res
+  }
+  return { map: new Map<string, number>(), ok: false }
 }
 
 function round(x: number, digits = 0): number {
@@ -73,7 +125,9 @@ function buildService(
 
 // D55-4 — topology traffic: per-service request rate / error rate / P99 latency,
 // preferring D56 OTel http server metrics and falling back to nginx-ingress
-// controller metrics per service. Also returns cachest per-upstream-provider P99.
+// controller metrics per service. Also returns cachest per-upstream-provider P99
+// and, when INGRESS_APP_HOST is configured, an aggregate for the nginx-gateway
+// node (per-host ingress volume = what the gateway actually serves).
 // Degrades to an empty payload when Prometheus is unavailable.
 export async function loadTrafficData(): Promise<TopologyTrafficResponse> {
   const fetchedAt = new Date().toISOString()
@@ -81,17 +135,19 @@ export async function loadTrafficData(): Promise<TopologyTrafficResponse> {
     return { services: [], cachestProviders: [], fetchedAt }
   }
 
-  const [otelRate, otelErr, otelP99, cachestP99, ingRate, ingErr, ingP99] = await Promise.all([
-    queryMap(OTEL_RATE_Q, "service_name"),
-    queryMap(OTEL_ERR_Q, "service_name"),
-    queryMap(OTEL_P99_Q, "service_name"),
+  const gatewayConfigured = Boolean(ingressGatewayHost())
+  const [otelRate, otelErr, otelP99, cachestP99, ingRate, ingErr, ingP99, gwRate, gwErr, gwP99] = await Promise.all([
+    queryMapByLabel(OTEL_RATE_BASE),
+    queryMapByLabel(OTEL_ERR_BASE),
+    queryP99ByLabel(OTEL_P99_BASE),
     queryMap(CACHEST_P99_Q, "server_address"),
     queryMap(ingressRateQ(), "service"),
     queryMap(ingressErrQ(), "service"),
     queryMap(ingressP99Q(), "service"),
+    ...gatewayResults(),
   ])
 
-  const anyOk = [otelRate, otelErr, otelP99, cachestP99, ingRate, ingErr, ingP99].some((r) => r.ok)
+  const anyOk = [otelRate, otelErr, otelP99, cachestP99, ingRate, ingErr, ingP99, gwRate, gwErr, gwP99].some((r) => r.ok)
   if (!anyOk) {
     return { services: [], cachestProviders: [], fetchedAt }
   }
@@ -106,6 +162,20 @@ export async function loadTrafficData(): Promise<TopologyTrafficResponse> {
     }
     return buildService(name, "none", 0, 0, 0)
   })
+
+  if (gatewayConfigured) {
+    const host = ingressGatewayHost()
+    const hasData = gwRate.map.has(host) || gwErr.map.has(host) || gwP99.map.has(host)
+    services.push(
+      buildService(
+        "nginx-gateway",
+        hasData ? "ingress" : "none",
+        gwRate.map.get(host) ?? 0,
+        gwErr.map.get(host) ?? 0,
+        gwP99.map.get(host) ?? 0,
+      ),
+    )
+  }
 
   const cachestProviders = [...cachestP99.map.entries()].map(([provider, seconds]) => ({
     provider,
