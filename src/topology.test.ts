@@ -201,3 +201,144 @@ describe("GET /api/admin/topology/status (D55)", () => {
     }
   })
 })
+
+describe("GET /api/admin/topology/traffic (D55)", () => {
+  it("returns empty payload when PROMETHEUS_URL is not set (local-dev fallback)", async () => {
+    setServiceEnv()
+    delete process.env.PROMETHEUS_URL
+    const orig = mockFetch({ service: "svc", impl: "real", version: "1.2.3" })
+    try {
+      const res = await app.request("/api/admin/topology/traffic", { headers: adminHeaders })
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.services).toEqual([])
+      expect(body.cachestProviders).toEqual([])
+      expect(typeof body.fetchedAt).toBe("string")
+    } finally {
+      orig.restore()
+    }
+  })
+
+  it("returns empty payload when Prometheus is down", async () => {
+    setServiceEnv()
+    process.env.PROMETHEUS_URL = "http://prom.example:9090"
+    const orig = mockFetch({ service: "svc", impl: "real", version: "1.2.3" }, {}, 500)
+    try {
+      const res = await app.request("/api/admin/topology/traffic", { headers: adminHeaders })
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.services).toEqual([])
+      expect(body.cachestProviders).toEqual([])
+    } finally {
+      orig.restore()
+    }
+  })
+
+  it("uses the OTel path and populates cachestProviders when D56 metrics are present", async () => {
+    setServiceEnv()
+    process.env.PROMETHEUS_URL = "http://prom.example:9090"
+    process.env.K8S_NAMESPACE = "pfire"
+    const orig = mockFetch(
+      { service: "svc", impl: "real", version: "1.2.3" },
+      {
+        // OTel server rate (no status filter) — rate query ends in _count[5m])
+        "http_server_request_duration_seconds_count[5m])": [
+          { metric: { service_name: "portfoliost-admin" }, value: [1, "0.5"] }, // 0.5/s → 30/min
+          { metric: { service_name: "cachest" }, value: [1, "0.2"] },
+        ],
+        // OTel server error rate (only series carrying the status filter)
+        "http_response_status_code": [
+          { metric: { service_name: "portfoliost-admin" }, value: [1, "0.1"] }, // 0.1/0.5 = 0.2
+        ],
+        // OTel server P99
+        "http_server_request_duration_seconds_bucket": [
+          { metric: { service_name: "portfoliost-admin" }, value: [1, "0.25"] }, // 250 ms
+        ],
+        // cachest client P99 per upstream provider
+        "http_client_request_duration_seconds_bucket": [
+          { metric: { server_address: "openst" }, value: [1, "0.1"] }, // 100 ms
+          { metric: { server_address: "alphavantage.co" }, value: [1, "0.4"] }, // 400 ms
+        ],
+      },
+    )
+    try {
+      const res = await app.request("/api/admin/topology/traffic", { headers: adminHeaders })
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      const services = body.services as Array<Record<string, any>>
+      expect(services.length).toBe(6)
+
+      const admin = services.find((s) => s.name === "portfoliost-admin")!
+      expect(admin.source).toBe("otel")
+      expect(admin.requestsPerMin).toBe(30)
+      expect(admin.errorRate).toBeCloseTo(0.2)
+      expect(admin.p99LatencyMs).toBe(250)
+
+      const cachest = services.find((s) => s.name === "cachest")!
+      expect(cachest.source).toBe("otel")
+      expect(cachest.requestsPerMin).toBe(12) // 0.2*60
+
+      // no OTel data, no ingress data → none
+      const wallets = services.find((s) => s.name === "portfoliost-wallets")!
+      expect(wallets.source).toBe("none")
+      expect(wallets.requestsPerMin).toBe(0)
+
+      // cachestProviders populated from the per-server_address histogram
+      expect(body.cachestProviders).toEqual(
+        expect.arrayContaining([
+          { provider: "openst", p99LatencyMs: 100 },
+          { provider: "alphavantage.co", p99LatencyMs: 400 },
+        ]),
+      )
+      expect(body.cachestProviders.length).toBe(2)
+    } finally {
+      orig.restore()
+    }
+  })
+
+  it("falls back to nginx-ingress metrics when D56 OTel metrics are absent", async () => {
+    setServiceEnv()
+    process.env.PROMETHEUS_URL = "http://prom.example:9090"
+    process.env.K8S_NAMESPACE = "pfire"
+    const orig = mockFetch(
+      { service: "svc", impl: "real", version: "1.2.3" },
+      {
+        // ingress rate — only series whose matcher has the namespace then closes with }[5m]
+        'nginx_ingress_controller_requests{exported_namespace="pfire"}[5m]': [
+          { metric: { service: "portfoliost-wallets" }, value: [1, "1"] }, // 1/s → 60/min
+          { metric: { service: "portfoliost-admin" }, value: [1, "0.5"] },
+        ],
+        // ingress error rate — matcher carries the status filter
+        'nginx_ingress_controller_requests{exported_namespace="pfire", status': [
+          { metric: { service: "portfoliost-wallets" }, value: [1, "0.3"] }, // 0.3/1 = 0.3
+        ],
+        // ingress P99
+        "nginx_ingress_controller_request_duration_seconds_bucket": [
+          { metric: { service: "portfoliost-wallets" }, value: [1, "0.5"] }, // 500 ms
+        ],
+      },
+    )
+    try {
+      const res = await app.request("/api/admin/topology/traffic", { headers: adminHeaders })
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      const services = body.services as Array<Record<string, any>>
+      expect(services.length).toBe(6)
+
+      const wallets = services.find((s) => s.name === "portfoliost-wallets")!
+      expect(wallets.source).toBe("ingress")
+      expect(wallets.requestsPerMin).toBe(60)
+      expect(wallets.errorRate).toBeCloseTo(0.3)
+      expect(wallets.p99LatencyMs).toBe(500)
+
+      const admin = services.find((s) => s.name === "portfoliost-admin")!
+      expect(admin.source).toBe("ingress")
+      expect(admin.requestsPerMin).toBe(30)
+
+      // OTel client histogram absent → no providers
+      expect(body.cachestProviders).toEqual([])
+    } finally {
+      orig.restore()
+    }
+  })
+})

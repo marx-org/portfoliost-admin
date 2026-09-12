@@ -1,6 +1,7 @@
 import { Hono } from "hono"
 import { probeServiceMetas } from "./service-probe.js"
 import { queryInstant, seriesMap } from "./prometheus.js"
+import { loadTrafficData } from "./topology-traffic.js"
 import type { components } from "./generated/api-types"
 
 type TopologyServiceStatus = components["schemas"]["TopologyServiceStatus"]
@@ -75,6 +76,13 @@ export function registerTopologyRoutes(admin: Hono) {
     })
 
     const body: TopologyStatusResponse = { services, fetchedAt: new Date().toISOString() }
+    return c.json(body)
+  })
+
+  // D55-4 — topology live traffic: per-service rate / error rate / P99, preferring
+  // D56 OTel metrics with nginx-ingress fallback, plus cachest per-provider P99.
+  admin.get("/topology/traffic", async (c) => {
+    const body = await loadTrafficData()
     return c.json(body)
   })
 }
