@@ -7,11 +7,12 @@
  * GET  /api/admin/market-data/overflow-summary   — price_bars row counts
  */
 import { Hono } from "hono"
+import { sql } from "drizzle-orm"
 import type { DB } from "./db/index.js"
 
 let _db: DB | null = null
 
-export function setMarketDataDb(db: DB) {
+export function setMarketDataDb(db: DB | null) {
   _db = db
 }
 
@@ -45,20 +46,53 @@ function rowsOf<T>(result: unknown): T[] {
 
 // ── routes ────────────────────────────────────────────────────────────────────
 
+type SplitAdjustmentResult =
+  | { portfolioAdjustment: { updatedTransactions: number; affectedPortfolios: number } }
+  | { portfolioAdjustmentFailed: true; error: string }
+
+async function applyWalletSplit(symbol: string, priceFactor: number, effectiveDate: string): Promise<SplitAdjustmentResult> {
+  const walletsUrl = process.env.API_WALLETS_URL
+  if (!walletsUrl) {
+    console.error("[market-data] apply-split: API_WALLETS_URL not configured")
+    return { portfolioAdjustmentFailed: true, error: "API_WALLETS_URL not configured" }
+  }
+  try {
+    const res = await fetch(`${walletsUrl}/internal/apply-split`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ symbol, factor: 1 / priceFactor, effectiveDate }),
+      signal: AbortSignal.timeout(15000),
+    })
+    const text = await res.text()
+    if (!res.ok) {
+      console.error("[market-data] apply-split rejected", res.status, text)
+      return { portfolioAdjustmentFailed: true, error: `wallets responded ${res.status}: ${text}` }
+    }
+    const body = JSON.parse(text) as { updatedTransactions: number; affectedPortfolios: number }
+    return {
+      portfolioAdjustment: {
+        updatedTransactions: body.updatedTransactions,
+        affectedPortfolios: body.affectedPortfolios,
+      },
+    }
+  } catch (err) {
+    console.error("[market-data] apply-split failed", err)
+    return { portfolioAdjustmentFailed: true, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
 export function registerMarketDataRoutes(admin: Hono) {
   // GET /api/admin/market-data/split-candidates
   admin.get("/market-data/split-candidates", async (c) => {
     if (!_db) return c.json([])
     try {
-      const rows = await (_db as any).execute({
-        raw: `SELECT symbol, detected_at, last_stooq_date, last_stooq_close,
-                     first_overflow_date, first_overflow_close,
-                     ratio, suggested_factor, suggested_ratio, status
-              FROM instruments.split_candidates
-              ORDER BY
-                CASE status WHEN 'pending' THEN 0 ELSE 1 END,
-                detected_at DESC`,
-      } as never)
+      const rows = await _db.execute(sql`SELECT symbol, detected_at, last_stooq_date, last_stooq_close,
+                      first_overflow_date, first_overflow_close,
+                      ratio, suggested_factor, suggested_ratio, status
+               FROM instruments.split_candidates
+               ORDER BY
+                 CASE status WHEN 'pending' THEN 0 ELSE 1 END,
+                 detected_at DESC`)
       const r = rowsOf<Record<string, unknown>>(rows)
       return c.json(
         r.map((x) => ({
@@ -93,19 +127,20 @@ export function registerMarketDataRoutes(admin: Hono) {
       return c.json({ error: "factor must be a positive number" }, 400)
     }
     try {
+      const db = _db
       // 1. Insert or replace split_adjustment
       const today = new Date().toISOString().slice(0, 10)
-      await (_db as any).execute({
-        raw: `INSERT INTO instruments.split_adjustments (symbol, detected_at, factor, split_ratio)
-              VALUES ('${symbol.replace(/'/g, "''")}', '${today}', ${factor}, NULL)
-              ON CONFLICT (symbol, detected_at) DO UPDATE SET factor = excluded.factor`,
-      } as never)
+      await db.execute(sql`INSERT INTO instruments.split_adjustments (symbol, detected_at, factor, split_ratio)
+              VALUES (${symbol}, ${today}, ${factor}, NULL)
+              ON CONFLICT (symbol, detected_at) DO UPDATE SET factor = excluded.factor`)
       // 2. Mark candidate as applied
-      await (_db as any).execute({
-        raw: `UPDATE instruments.split_candidates SET status = 'applied', reviewed_at = now()
-              WHERE symbol = '${symbol.replace(/'/g, "''")}'`,
-      } as never)
-      return c.json({ ok: true, symbol, factor, detectedAt: today })
+      await db.execute(sql`UPDATE instruments.split_candidates SET status = 'applied', reviewed_at = now()
+              WHERE symbol = ${symbol}`)
+      // 3. Restate portfolios in wallets (quantity factor = 1 / price factor).
+      // Best-effort: a failed adjustment keeps splitApplied=true so the price
+      // bars stay corrected and the call can be retried from the admin panel.
+      const adjustment = await applyWalletSplit(symbol, factor, today)
+      return c.json({ ok: true, splitApplied: true, symbol, factor, detectedAt: today, ...adjustment })
     } catch (err) {
       console.error("[market-data] apply", err)
       return c.json({ error: "Internal error" }, 500)
@@ -117,10 +152,8 @@ export function registerMarketDataRoutes(admin: Hono) {
     if (!_db) return c.json({ error: "DB unavailable" }, 503)
     const symbol = c.req.param("symbol")
     try {
-      await (_db as any).execute({
-        raw: `UPDATE instruments.split_candidates SET status = 'dismissed', reviewed_at = now()
-              WHERE symbol = '${symbol.replace(/'/g, "''")}' AND status = 'pending'`,
-      } as never)
+      await _db.execute(sql`UPDATE instruments.split_candidates SET status = 'dismissed', reviewed_at = now()
+              WHERE symbol = ${symbol} AND status = 'pending'`)
       return c.json({ ok: true, symbol })
     } catch (err) {
       console.error("[market-data] dismiss", err)
@@ -132,18 +165,14 @@ export function registerMarketDataRoutes(admin: Hono) {
   admin.get("/market-data/overflow-summary", async (c) => {
     if (!_db) return c.json({ total: 0, topSymbols: [] })
     try {
-      const totalRes = await (_db as any).execute({
-        raw: `SELECT COUNT(*)::int AS total FROM instruments.price_bars`,
-      } as never)
+      const totalRes = await _db.execute(sql`SELECT COUNT(*)::int AS total FROM instruments.price_bars`)
       const total = rowsOf<{ total: number }>(totalRes)[0]?.total ?? 0
 
-      const topRes = await (_db as any).execute({
-        raw: `SELECT symbol, COUNT(*)::int AS row_count
-              FROM instruments.price_bars
-              GROUP BY symbol
-              ORDER BY row_count DESC
-              LIMIT 10`,
-      } as never)
+      const topRes = await _db.execute(sql`SELECT symbol, COUNT(*)::int AS row_count
+               FROM instruments.price_bars
+               GROUP BY symbol
+               ORDER BY row_count DESC
+               LIMIT 10`)
       const topSymbols: OverflowSymbol[] = rowsOf<{ symbol: string; row_count: number }>(topRes)
         .map((r) => ({ symbol: r.symbol, rowCount: r.row_count }))
 
