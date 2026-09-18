@@ -3,6 +3,7 @@ import { pino } from "pino"
 import { validateJwt, userIdentityMiddleware, requireGroup } from "./auth.js"
 import { moduleMeta } from "./meta.js"
 import { registerJobsRoutes } from "./jobs.js"
+import { registerSheetsSyncRoutes } from "./sheets-sync.js"
 import { registerMarketDataRoutes, setMarketDataDb } from "./market-data.js"
 import { registerTopologyRoutes } from "./topology.js"
 import { probeServiceMetas } from "./service-probe.js"
@@ -201,6 +202,8 @@ async function fetchPocketIdUsers(): Promise<Map<string, PocketIdIdentity>> {
 
 // N — stooq import jobs
 registerJobsRoutes(admin)
+// §24.9 — Google Sheets sync (admin-triggered jobshot Job)
+registerSheetsSyncRoutes(admin)
 registerMarketDataRoutes(admin)
 registerTopologyRoutes(admin)
 

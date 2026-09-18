@@ -57,24 +57,25 @@ function uploadPath(dataset: StooqDataset, uploadId: string): string {
 
 // ── jobshot proxy helper ─────────────────────────────────────────────────────
 
-function jotshotUrl(): string {
+export function jotshotUrl(): string {
   return process.env.API_JOBSHOT_URL ?? "http://jobshot:3000"
 }
 
-interface JobshotRunPayload {
+export interface JobshotRunPayload {
   name:         string
   namespace:    string
   container:    string
   entrypoint:   string[]
   parameters:   string[]
   secretName:   string
+  env?:        Record<string, string>
   volumes:      object[]
   volumeMounts: object[]
   nodeSelector: Record<string, string>
   resources:    { requests: { cpu: string; memory: string }; limits: { cpu: string; memory: string } }
 }
 
-async function callJobshotRun(payload: JobshotRunPayload): Promise<{ jobName: string; namespace: string }> {
+export async function callJobshotRun(payload: JobshotRunPayload): Promise<{ jobName: string; namespace: string }> {
   const res = await fetch(`${jotshotUrl()}/api/run-job`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -86,7 +87,7 @@ async function callJobshotRun(payload: JobshotRunPayload): Promise<{ jobName: st
   return JSON.parse(text) as { jobName: string; namespace: string }
 }
 
-async function callJobshotStatus(name: string, namespace: string): Promise<{
+export async function callJobshotStatus(name: string, namespace: string): Promise<{
   status: string; exists: boolean; isRunning: boolean;
   details?: { active: number; succeeded: number; failed: number }
 }> {
@@ -109,6 +110,10 @@ export function setJobsDb(db: DB) {
   _db = db
 }
 
+export function getJobsDb(): DB | null {
+  return _db
+}
+
 type JobStatus = "Running" | "Succeeded" | "Failed" | "NotFound"
 
 interface JobRunRow {
@@ -122,7 +127,7 @@ interface JobRunRow {
   updatedAt: Date
 }
 
-async function upsertJobRun(
+export async function upsertJobRun(
   db: DB,
   row: { name: string; namespace: string; kind: string; param: string | null; status: JobStatus; details: unknown; startedAt?: Date },
 ): Promise<void> {
@@ -154,7 +159,7 @@ async function upsertJobRun(
     })
 }
 
-async function getJobRun(db: DB, name: string): Promise<JobRunRow | null> {
+export async function getJobRun(db: DB, name: string): Promise<JobRunRow | null> {
   const rows = await (db as any).select().from(jobRun).where(eq(jobRun.name, name)).limit(1)
   return (rows[0] as JobRunRow) ?? null
 }
