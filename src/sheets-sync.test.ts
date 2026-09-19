@@ -131,7 +131,7 @@ describe("Sheets sync jobs API (§24.9)", () => {
       const payload = mock.runBodies[0] as any
       expect(payload.name).toBe("portfoliost-sheets-sync")
       expect(payload.namespace).toBe("pfire")
-      expect(payload.container).toBe("ghcr.io/marx2/portfoliost-sheets-sync:v1.0.2")
+      expect(payload.container).toBe("ghcr.io/marx2/portfoliost-sheets-sync:v1.0.3")
       expect(payload.entrypoint).toEqual(["node", "dist/sync.js"])
       expect(payload.parameters).toEqual([])
       expect(payload.secretName).toBe("sheets-sync-secrets")
