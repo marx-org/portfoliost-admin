@@ -184,14 +184,14 @@ describe("GET /api/admin/topology/status (D55)", () => {
           { metric: { owner_name: "redis" }, value: [1, "3"] },
         ],
         // restarts — STS attribution (created_by_name = StatefulSet name)
-        'kube_pod_container_status_restarts_total{namespace="pfire", pod=~"^postgres-pfire-postgres-pfire-"}': [
+        'kube_pod_container_status_restarts_total{namespace="pfire", pod=~"postgres-pfire-postgres-pfire-.*"}': [
           { metric: { created_by_name: "postgres-pfire-postgres-pfire-k8db" }, value: [1, "0"] },
         ],
         // image tag → version (markers scoped to the per-workload pod regex)
-        'kube_pod_container_info{namespace="pfire", pod=~"^postgres-pfire-postgres-pfire-", container="database"}': [
+        'kube_pod_container_info{namespace="pfire", pod=~"postgres-pfire-postgres-pfire-.*", container="database"}': [
           { metric: { image: "ghcr.io/postgres-operator/postgres:16.4-debian-12" }, value: [1, "1"] },
         ],
-        'kube_pod_container_info{namespace="pfire", pod=~"^redis-", container="main"}': [
+        'kube_pod_container_info{namespace="pfire", pod=~"redis-.*", container="main"}': [
           { metric: { image: "redis:7.4" }, value: [1, "1"] },
         ],
       },
@@ -517,16 +517,16 @@ describe("GET /api/admin/topology/traffic (D55)", () => {
         // gateway P99
         "nginx_ingress_controller_request_duration_seconds_bucket": [{ metric: { host: "portfoliost.example.com" }, value: [1, "0.3"] }],
         // workload resource metrics (cAdvisor + Crunchy exporter)
-        'container_cpu_usage_seconds_total{namespace=~"pfire", pod=~"^postgres-pfire-postgres-pfire-", container="database"}[5m])': [
+        'container_cpu_usage_seconds_total{namespace=~"pfire", pod=~"postgres-pfire-postgres-pfire-.*", container="database"}[5m])': [
           { metric: {}, value: [1, "0.25"] },
         ],
-        'container_memory_working_set_bytes{namespace=~"pfire", pod=~"^postgres-pfire-postgres-pfire-", container="database"}': [
+        'container_memory_working_set_bytes{namespace=~"pfire", pod=~"postgres-pfire-postgres-pfire-.*", container="database"}': [
           { metric: {}, value: [1, "104857600"] },
         ],
-        'container_cpu_usage_seconds_total{namespace=~"pfire", pod=~"^redis-", container="main"}[5m])': [
+        'container_cpu_usage_seconds_total{namespace=~"pfire", pod=~"redis-.*", container="main"}[5m])': [
           { metric: {}, value: [1, "0.01"] },
         ],
-        'container_memory_working_set_bytes{namespace=~"pfire", pod=~"^redis-", container="main"}': [
+        'container_memory_working_set_bytes{namespace=~"pfire", pod=~"redis-.*", container="main"}': [
           { metric: {}, value: [1, "20971520"] },
         ],
         'pg_stat_activity_count{namespace=~"pfire"}': [{ metric: {}, value: [1, "42"] }],
@@ -581,10 +581,10 @@ describe("GET /api/admin/topology/traffic (D55)", () => {
       { service: "svc", impl: "real", version: "1.2.3" },
       {
         // cAdvisor metrics present; no pg_stat_* series (exporter not scraped)
-        'container_cpu_usage_seconds_total{namespace=~"pfire", pod=~"^postgres-pfire-postgres-pfire-", container="database"}[5m])': [
+        'container_cpu_usage_seconds_total{namespace=~"pfire", pod=~"postgres-pfire-postgres-pfire-.*", container="database"}[5m])': [
           { metric: {}, value: [1, "0.1"] },
         ],
-        'container_memory_working_set_bytes{namespace=~"pfire", pod=~"^postgres-pfire-postgres-pfire-", container="database"}': [
+        'container_memory_working_set_bytes{namespace=~"pfire", pod=~"postgres-pfire-postgres-pfire-.*", container="database"}': [
           { metric: {}, value: [1, "52428800"] },
         ],
       },
