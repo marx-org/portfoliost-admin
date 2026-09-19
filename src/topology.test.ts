@@ -387,7 +387,7 @@ describe("GET /api/admin/topology/traffic (D55)", () => {
       expect(res.status).toBe(200)
       const body = await res.json()
       const services = body.services as Array<Record<string, any>>
-      expect(services.length).toBe(6)
+      expect(services.length).toBe(8)
 
       const admin = services.find((s) => s.name === "portfoliost-admin")!
       expect(admin.source).toBe("otel")
@@ -444,7 +444,7 @@ describe("GET /api/admin/topology/traffic (D55)", () => {
       expect(res.status).toBe(200)
       const body = await res.json()
       const services = body.services as Array<Record<string, any>>
-      expect(services.length).toBe(6)
+      expect(services.length).toBe(8)
 
       const wallets = services.find((s) => s.name === "portfoliost-wallets")!
       expect(wallets.source).toBe("ingress")
@@ -485,7 +485,7 @@ describe("GET /api/admin/topology/traffic (D55)", () => {
       expect(res.status).toBe(200)
       const body = await res.json()
       const services = body.services as Array<Record<string, any>>
-      expect(services.length).toBe(6)
+      expect(services.length).toBe(8)
 
       const admin = services.find((s) => s.name === "portfoliost-admin")!
       expect(admin.source).toBe("otel")
@@ -516,15 +516,46 @@ describe("GET /api/admin/topology/traffic (D55)", () => {
         '{host="portfoliost.example.com", status=~"4..|5.."}': [{ metric: { host: "portfoliost.example.com" }, value: [1, "0.05"] }],
         // gateway P99
         "nginx_ingress_controller_request_duration_seconds_bucket": [{ metric: { host: "portfoliost.example.com" }, value: [1, "0.3"] }],
+        // workload resource metrics (cAdvisor + Crunchy exporter)
+        'container_cpu_usage_seconds_total{namespace=~"pfire", pod=~"^postgres-pfire-postgres-pfire-", container="database"}[5m])': [
+          { metric: {}, value: [1, "0.25"] },
+        ],
+        'container_memory_working_set_bytes{namespace=~"pfire", pod=~"^postgres-pfire-postgres-pfire-", container="database"}': [
+          { metric: {}, value: [1, "104857600"] },
+        ],
+        'container_cpu_usage_seconds_total{namespace=~"pfire", pod=~"^redis-", container="redis"}[5m])': [
+          { metric: {}, value: [1, "0.01"] },
+        ],
+        'container_memory_working_set_bytes{namespace=~"pfire", pod=~"^redis-", container="redis"}': [
+          { metric: {}, value: [1, "20971520"] },
+        ],
+        'pg_stat_activity_count{namespace=~"pfire"}': [{ metric: {}, value: [1, "42"] }],
+        // the combined tx/min query is the only one carrying "* 60"
+        'pg_stat_database_xact_rollback{namespace=~"pfire"}[5m]))) * 60': [{ metric: {}, value: [1, "36"] }],
       },
     )
     try {
       const res = await app.request("/api/admin/topology/traffic", { headers: adminHeaders })
-      expect(res.status).toBe(200)
       const body = await res.json()
       const services = body.services as Array<Record<string, any>>
-      // 6 probed services + the gateway aggregate
-      expect(services.length).toBe(7)
+      // 6 probed services + gateway + 2 storage workloads
+      expect(services.length).toBe(9)
+
+      const postgres = services.find((s) => s.name === "postgres")!
+      expect(postgres.source).toBe("prometheus")
+      expect(postgres.cpuCores).toBeCloseTo(0.25)
+      expect(postgres.memoryBytes).toBe(104857600)
+      expect(postgres.connections).toBe(42)
+      expect(postgres.requestsPerMin).toBe(36)
+      expect(postgres.errorRate).toBeNull()
+      expect(postgres.p99LatencyMs).toBeNull()
+
+      const redis = services.find((s) => s.name === "redis")!
+      expect(redis.source).toBe("prometheus")
+      expect(redis.cpuCores).toBeCloseTo(0.01)
+      expect(redis.memoryBytes).toBe(20971520)
+      expect(redis.connections).toBeNull() // redis has no exporter → connections stays null
+      expect(redis.requestsPerMin).toBeNull()
 
       const gateway = services.find((s) => s.name === "nginx-gateway")!
       expect(gateway.source).toBe("ingress")
@@ -532,10 +563,88 @@ describe("GET /api/admin/topology/traffic (D55)", () => {
       expect(gateway.errorRate).toBeCloseTo(0.25)
       expect(gateway.p99LatencyMs).toBe(300)
 
-      // the probed services have no OTel/ingress-per-service series → none
+      // the probed services have no OTel/ingress-per-service series → none, HTTP fields stay set
       const admin = services.find((s) => s.name === "portfoliost-admin")!
       expect(admin.source).toBe("none")
       expect(admin.requestsPerMin).toBe(0)
+      expect(admin.cpuCores).toBeUndefined()
+    } finally {
+      orig.restore()
+    }
+  })
+
+  it("nulls postgres tx/connections when the Crunchy exporter is not yet scraped", async () => {
+    setServiceEnv()
+    process.env.PROMETHEUS_URL = "http://prom.example:9090"
+    process.env.K8S_NAMESPACE = "pfire"
+    const orig = mockFetch(
+      { service: "svc", impl: "real", version: "1.2.3" },
+      {
+        // cAdvisor metrics present; no pg_stat_* series (exporter not scraped)
+        'container_cpu_usage_seconds_total{namespace=~"pfire", pod=~"^postgres-pfire-postgres-pfire-", container="database"}[5m])': [
+          { metric: {}, value: [1, "0.1"] },
+        ],
+        'container_memory_working_set_bytes{namespace=~"pfire", pod=~"^postgres-pfire-postgres-pfire-", container="database"}': [
+          { metric: {}, value: [1, "52428800"] },
+        ],
+      },
+    )
+    try {
+      const res = await app.request("/api/admin/topology/traffic", { headers: adminHeaders })
+      const body = await res.json()
+      const services = body.services as Array<Record<string, any>>
+      const postgres = services.find((s) => s.name === "postgres")!
+      expect(postgres.source).toBe("prometheus")
+      expect(postgres.cpuCores).toBeCloseTo(0.1)
+      expect(postgres.memoryBytes).toBe(52428800)
+      // no exporter data → nulls, not zeros
+      expect(postgres.connections).toBeNull()
+      expect(postgres.requestsPerMin).toBeNull()
+      expect(postgres.errorRate).toBeNull()
+      expect(postgres.p99LatencyMs).toBeNull()
+      expect(body.services.length).toBe(8)
+    } finally {
+      orig.restore()
+    }
+  })
+
+  it("degrades workload rows to null resource fields when cAdvisor queries fail, without 500ing", async () => {
+    setServiceEnv()
+    process.env.PROMETHEUS_URL = "http://prom.example:9090"
+    process.env.K8S_NAMESPACE = "pfire"
+    // Prometheus itself is up (the OTel rate probe yields a series), but every
+    // workload-specific (cAdvisor / Crunchy exporter) query 500s.
+    const orig = mockFetch(
+      { service: "svc", impl: "real", version: "1.2.3" },
+      { "http_server_request_duration_seconds_count[5m])": [{ metric: { service_name: "cachest" }, value: [1, "0.2"] }] },
+    )
+    const inner = globalThis.fetch as unknown as (input: RequestInfo | URL) => Promise<Response>
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+      const query = url.includes("/api/v1/query") ? new URL(url).searchParams.get("query") ?? "" : ""
+      if (query.includes("container_cpu_usage_seconds_total") || query.includes("container_memory_working_set_bytes") || query.startsWith("sum(pg_stat")) {
+        return new Response("boom", { status: 500 })
+      }
+      return inner(input)
+    }) as typeof fetch
+    try {
+      const res = await app.request("/api/admin/topology/traffic", { headers: adminHeaders })
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      const services = body.services as Array<Record<string, any>>
+      // HTTP rows still render (Prometheus up)
+      const cachest = services.find((s) => s.name === "cachest")!
+      expect(cachest.source).toBe("otel")
+      // workload rows degrade to nulls, not 500s
+      const postgres = services.find((s) => s.name === "postgres")!
+      expect(postgres.source).toBe("prometheus")
+      expect(postgres.cpuCores).toBeNull()
+      expect(postgres.memoryBytes).toBeNull()
+      expect(postgres.connections).toBeNull()
+      expect(postgres.requestsPerMin).toBeNull()
+      const redis = services.find((s) => s.name === "redis")!
+      expect(redis.cpuCores).toBeNull()
+      expect(redis.memoryBytes).toBeNull()
     } finally {
       orig.restore()
     }
