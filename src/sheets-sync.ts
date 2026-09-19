@@ -14,18 +14,18 @@ import {
 // is JWT-gated), passed through as WALLETS_API_TOKEN. The job's wallets client
 // prepends "Bearer " itself, so the raw token (prefix stripped) goes in env.
 
-const JOB_NAME  = "portfoliost-sheets-sync"
+export const SHEETS_SYNC_JOB_NAME = "portfoliost-sheets-sync"
 const NAMESPACE = "pfire"
 const KIND      = "sheets_sync"
 
 // Pinned release image; override via env for canary/dev.
-function sheetsSyncImage(): string {
+export function sheetsSyncImage(): string {
   return process.env.SHEETS_SYNC_IMAGE ?? "ghcr.io/marx2/portfoliost-sheets-sync:v1.0.3"
 }
 
 function buildSheetsSyncSpec(wipe: boolean, callerToken: string): JobshotRunPayload {
   return {
-    name:       JOB_NAME,
+    name:       SHEETS_SYNC_JOB_NAME,
     namespace:  NAMESPACE,
     container:  sheetsSyncImage(),
     entrypoint: ["node", "dist/sync.js"],
@@ -74,7 +74,7 @@ export function registerSheetsSyncRoutes(admin: Hono) {
     // Duplicate-run guard — jobshot also rejects a running same-name job, but
     // short-circuit so the SPA gets a clean 409.
     try {
-      const status = await callJobshotStatus(JOB_NAME, NAMESPACE)
+      const status = await callJobshotStatus(SHEETS_SYNC_JOB_NAME, NAMESPACE)
       if (status.isRunning || status.status === "Running") {
         return c.json({ error: "A sheets-sync job is already running" }, 409)
       }
@@ -85,7 +85,7 @@ export function registerSheetsSyncRoutes(admin: Hono) {
     const spec = buildSheetsSyncSpec(wipe, callerToken)
     try {
       const result = await callJobshotRun(spec)
-      const name      = result.jobName ?? JOB_NAME
+      const name      = result.jobName ?? SHEETS_SYNC_JOB_NAME
       const namespace = result.namespace ?? NAMESPACE
 
       // Persist Running so the backend poller tracks it and /status reads from
@@ -119,7 +119,7 @@ export function registerSheetsSyncRoutes(admin: Hono) {
   admin.get("/jobs/sheets-sync/status", async (c) => {
     const db = getJobsDb()
     if (db) {
-      const row = await getJobRun(db, JOB_NAME).catch(() => null)
+      const row = await getJobRun(db, SHEETS_SYNC_JOB_NAME).catch(() => null)
       if (row) {
         return c.json({
           jobName:   row.name,
@@ -131,13 +131,13 @@ export function registerSheetsSyncRoutes(admin: Hono) {
     }
 
     try {
-      const data = await callJobshotStatus(JOB_NAME, NAMESPACE)
+      const data = await callJobshotStatus(SHEETS_SYNC_JOB_NAME, NAMESPACE)
       const status = data.exists
         ? (data.isRunning ? "Running" : data.status ?? "NotFound")
         : "NotFound"
-      return c.json({ jobName: JOB_NAME, status, details: data.details ?? null })
+      return c.json({ jobName: SHEETS_SYNC_JOB_NAME, status, details: data.details ?? null })
     } catch {
-      return c.json({ jobName: JOB_NAME, status: "NotFound", details: null })
+      return c.json({ jobName: SHEETS_SYNC_JOB_NAME, status: "NotFound", details: null })
     }
   })
 
@@ -149,7 +149,7 @@ export function registerSheetsSyncRoutes(admin: Hono) {
     if (!db) return c.json(empty)
 
     try {
-      const row = await getJobRun(db, JOB_NAME)
+      const row = await getJobRun(db, SHEETS_SYNC_JOB_NAME)
       if (!row) return c.json(empty)
       return c.json({
         startedAt: row.startedAt ? row.startedAt.toISOString() : null,

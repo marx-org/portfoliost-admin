@@ -295,9 +295,48 @@ describe("Admin API authorization (D50)", () => {
       expect(res.status).toBe(200)
       const body = await res.json()
       const jobs = (body.services as { service: string; impl: string }[]).filter((s) => s.impl === "job")
-      expect(jobs.map((j) => j.service)).toEqual(["portfoliost-wallets-fxsync", "jobshot"])
+      expect(jobs.map((j) => j.service)).toEqual([
+        "portfoliost-wallets-fxsync",
+        "jobshot",
+        "portfoliost-sheets-sync",
+      ])
     } finally {
       globalThis.fetch = origFetch
+    }
+  })
+
+  it("reports the pinned sheets-sync job image, honoring SHEETS_SYNC_IMAGE override", async () => {
+    const origFetch = globalThis.fetch
+    globalThis.fetch = (async () => new Response("Not Found", { status: 404 })) as typeof fetch
+    const prevEnv = process.env.SHEETS_SYNC_IMAGE
+    try {
+      delete process.env.SHEETS_SYNC_IMAGE
+      let res = await app.request("/api/admin/system/versions", {
+        headers: {
+          "X-User-Id": "admin-1",
+          "X-User-Email": "admin@example.com",
+          "X-User-Groups": "portfoliost_admin",
+        },
+      })
+      let jobs = (await res.json()).services.filter((s: { impl: string }) => s.impl === "job")
+      let sheets = jobs.find((j: { service: string }) => j.service === "portfoliost-sheets-sync")
+      expect(sheets.version).toBe("ghcr.io/marx2/portfoliost-sheets-sync:v1.0.3")
+
+      process.env.SHEETS_SYNC_IMAGE = "ghcr.io/marx2/portfoliost-sheets-sync:v9.9.9"
+      res = await app.request("/api/admin/system/versions", {
+        headers: {
+          "X-User-Id": "admin-1",
+          "X-User-Email": "admin@example.com",
+          "X-User-Groups": "portfoliost_admin",
+        },
+      })
+      jobs = (await res.json()).services.filter((s: { impl: string }) => s.impl === "job")
+      sheets = jobs.find((j: { service: string }) => j.service === "portfoliost-sheets-sync")
+      expect(sheets.version).toBe("ghcr.io/marx2/portfoliost-sheets-sync:v9.9.9")
+    } finally {
+      globalThis.fetch = origFetch
+      if (prevEnv === undefined) delete process.env.SHEETS_SYNC_IMAGE
+      else process.env.SHEETS_SYNC_IMAGE = prevEnv
     }
   })
 })
