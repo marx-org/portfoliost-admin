@@ -22,7 +22,7 @@ export interface WorkloadTarget {
  * - postgres: Crunchy PostgresCluster `postgres-pfire` → StatefulSet
  *   `postgres-pfire-postgres-pfire-k8db`, pods `postgres-pfire-postgres-pfire-…`,
  *   container `database`. Overridable via TOPOLOGY_POSTGRES_STATEFULSET.
- * - redis: deployment `redis` (REDIS_HOST per cachest helmrelease), container `redis`.
+ * - redis: deployment `redis` (REDIS_HOST per cachest helmrelease), container `main`.
  */
 export function workloadTargets(): WorkloadTarget[] {
   return [
@@ -38,7 +38,7 @@ export function workloadTargets(): WorkloadTarget[] {
       kind: "deployment",
       name: "redis",
       podRe: "^redis-",
-      container: "redis",
+      container: "main",
     },
   ]
 }

@@ -191,7 +191,7 @@ describe("GET /api/admin/topology/status (D55)", () => {
         'kube_pod_container_info{namespace="pfire", pod=~"^postgres-pfire-postgres-pfire-", container="database"}': [
           { metric: { image: "ghcr.io/postgres-operator/postgres:16.4-debian-12" }, value: [1, "1"] },
         ],
-        'kube_pod_container_info{namespace="pfire", pod=~"^redis-", container="redis"}': [
+        'kube_pod_container_info{namespace="pfire", pod=~"^redis-", container="main"}': [
           { metric: { image: "redis:7.4" }, value: [1, "1"] },
         ],
       },
@@ -523,10 +523,10 @@ describe("GET /api/admin/topology/traffic (D55)", () => {
         'container_memory_working_set_bytes{namespace=~"pfire", pod=~"^postgres-pfire-postgres-pfire-", container="database"}': [
           { metric: {}, value: [1, "104857600"] },
         ],
-        'container_cpu_usage_seconds_total{namespace=~"pfire", pod=~"^redis-", container="redis"}[5m])': [
+        'container_cpu_usage_seconds_total{namespace=~"pfire", pod=~"^redis-", container="main"}[5m])': [
           { metric: {}, value: [1, "0.01"] },
         ],
-        'container_memory_working_set_bytes{namespace=~"pfire", pod=~"^redis-", container="redis"}': [
+        'container_memory_working_set_bytes{namespace=~"pfire", pod=~"^redis-", container="main"}': [
           { metric: {}, value: [1, "20971520"] },
         ],
         'pg_stat_activity_count{namespace=~"pfire"}': [{ metric: {}, value: [1, "42"] }],
