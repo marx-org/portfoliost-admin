@@ -3,7 +3,7 @@ import { pino } from "pino"
 import { validateJwt, userIdentityMiddleware, requireGroup } from "./auth.js"
 import { moduleMeta } from "./meta.js"
 import { registerJobsRoutes } from "./jobs.js"
-import { registerSheetsSyncRoutes } from "./sheets-sync.js"
+import { registerSheetsSyncRoutes, SHEETS_SYNC_JOB_NAME, sheetsSyncImage } from "./sheets-sync.js"
 import { registerMarketDataRoutes, setMarketDataDb } from "./market-data.js"
 import { registerTopologyRoutes } from "./topology.js"
 import { probeServiceMetas } from "./service-probe.js"
@@ -50,6 +50,11 @@ admin.get("/system/versions", async (c) => {
   // Jobs run as standalone containers in the portfoliost set — report the
   // image ref currently pinned in the cluster (read live from the k8s API).
   const jobs = (await listJobVersions()).map((j) => ({ service: j.name, version: j.version, impl: j.impl }))
+
+  // sheets-sync is an on-demand jobshot Job (no CronJob) — its image is pinned
+  // in the admin backend (code default / SHEETS_SYNC_IMAGE env), so append it
+  // from here rather than the cluster.
+  jobs.push({ service: SHEETS_SYNC_JOB_NAME, version: sheetsSyncImage(), impl: "job" })
 
   // Service pods are Deployments too — attach the full image ref so the SPA
   // can show "version + image" consistently with the job entries.
