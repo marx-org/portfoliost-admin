@@ -65,6 +65,10 @@ function mockFetch(
       const query = new URL(url).searchParams.get("query") ?? ""
       seenPromQueries.push(query)
       if (promStatus !== 200) return new Response("boom", { status: promStatus })
+      // A marker matches when its kind prefix appears in the query — e.g.
+      // "kube_deployment_status_replicas{" matches the deployment desired query
+      // but not the statefulset variant, "kube_pod_container_info" matches only
+      // the version-image query.
       const hits = Object.entries(promBySubstring)
         .filter(([marker]) => query.includes(marker))
         .flatMap(([, s]) => s)
@@ -97,10 +101,21 @@ describe("GET /api/admin/topology/status (D55)", () => {
       expect(res.status).toBe(200)
       const body = await res.json()
       const services = body.services as Array<Record<string, unknown>>
+      // 6 HTTP-probed services + 2 k8s-only storage workloads (no /__meta)
       expect(new Set(services.map((s) => s.name))).toEqual(
-        new Set(["portfoliost-admin", "portfoliost-users-auth", "portfoliost-wallets", "portfoliost-instruments", "openst", "cachest"]),
+        new Set([
+          "portfoliost-admin", "portfoliost-users-auth", "portfoliost-wallets", "portfoliost-instruments", "openst", "cachest", "postgres", "redis",
+        ]),
       )
       for (const s of services) {
+        if (["postgres", "redis"].includes(s.name as string)) {
+          // storage workloads: impl real, unreachable without a live cluster, null replicas/restarts
+          expect(s.impl).toBe("real")
+          expect(s.reachable).toBe(false)
+          expect(s.replicas).toBeNull()
+          expect(s.restarts).toBeNull()
+          continue
+        }
         expect(s.reachable).toBe(true)
         expect(s.impl).toBe("real")
         expect(s.version).toBe("1.2.3")
@@ -121,8 +136,14 @@ describe("GET /api/admin/topology/status (D55)", () => {
       const res = await app.request("/api/admin/topology/status", { headers: adminHeaders })
       const body = await res.json()
       const services = body.services as Array<Record<string, unknown>>
-      expect(services.length).toBe(6)
+      // 6 HTTP-probed services + 2 storage workloads
+      expect(services.length).toBe(8)
       for (const s of services) {
+        if (["postgres", "redis"].includes(s.name as string)) {
+          // storage workloads keep their row regardless of /__meta reachability
+          expect(s.impl).toBe("real")
+          continue
+        }
         expect(s.reachable).toBe(false)
         expect(s.impl).toBe("unknown")
         expect(s.version).toBe("unreachable")
@@ -144,16 +165,34 @@ describe("GET /api/admin/topology/status (D55)", () => {
           series("portfoliost-admin", "1"),
           series("openst", "1"),
           series("portfoliost-users-auth", "1"),
+          // redis deployment (k8s-only workload branch)
+          { metric: { deployment: "redis" }, value: [1, "1"] },
         ],
         // ready
         "kube_deployment_status_replicas_ready{": [
           series("portfoliost-admin", "1"),
           series("openst", "0"),
+          { metric: { deployment: "redis" }, value: [1, "1"] },
         ],
-        // restarts join — result label is owner_name (deployment name)
-        "kube_pod_container_status_restarts_total": [
+        // StatefulSet replica counts (postgres k8s-only workload branch)
+        "kube_statefulset_status_replicas{": [{ metric: { statefulset: "postgres-pfire-postgres-pfire-k8db" }, value: [1, "1"] }],
+        "kube_statefulset_status_replicas_ready{": [{ metric: { statefulset: "postgres-pfire-postgres-pfire-k8db" }, value: [1, "1"] }],
+        // restarts — deployment owner-chain join (result label is owner_name)
+        "kube_replicaset_owner": [
           { metric: { owner_name: "portfoliost-admin" }, value: [1, "2"] },
           { metric: { owner_name: "openst" }, value: [1, "0"] },
+          { metric: { owner_name: "redis" }, value: [1, "3"] },
+        ],
+        // restarts — STS attribution (created_by_name = StatefulSet name)
+        'kube_pod_container_status_restarts_total{namespace="pfire", pod=~"^postgres-pfire-postgres-pfire-"}': [
+          { metric: { created_by_name: "postgres-pfire-postgres-pfire-k8db" }, value: [1, "0"] },
+        ],
+        // image tag → version (markers scoped to the per-workload pod regex)
+        'kube_pod_container_info{namespace="pfire", pod=~"^postgres-pfire-postgres-pfire-", container="database"}': [
+          { metric: { image: "ghcr.io/postgres-operator/postgres:16.4-debian-12" }, value: [1, "1"] },
+        ],
+        'kube_pod_container_info{namespace="pfire", pod=~"^redis-", container="redis"}': [
+          { metric: { image: "redis:7.4" }, value: [1, "1"] },
         ],
       },
     )
@@ -178,6 +217,87 @@ describe("GET /api/admin/topology/status (D55)", () => {
 
       // the restarts owner-chain join query was actually issued
       expect(orig.seenPromQueries.some((q) => q.includes("kube_replicaset_owner"))).toBe(true)
+
+      // k8s-only storage workloads merged in: STS branch (postgres) + deployment branch (redis)
+      const postgres = services.find((s) => s.name === "postgres")!
+      expect(postgres.reachable).toBe(true)
+      expect(postgres.impl).toBe("real")
+      expect(postgres.replicas).toEqual({ desired: 1, ready: 1 })
+      expect(postgres.restarts).toBe(0)
+      expect(postgres.version).toBe("16.4-debian-12")
+
+      const redis = services.find((s) => s.name === "redis")!
+      expect(redis.reachable).toBe(true)
+      expect(redis.impl).toBe("real")
+      expect(redis.replicas).toEqual({ desired: 1, ready: 1 })
+      expect(redis.restarts).toBe(3)
+      expect(redis.version).toBe("7.4")
+    } finally {
+      orig.restore()
+    }
+  })
+
+  it("marks a workload unreachable when ready < desired", async () => {
+    setServiceEnv()
+    process.env.PROMETHEUS_URL = "http://prom.example:9090"
+    process.env.K8S_NAMESPACE = "pfire"
+    const orig = mockFetch(
+      { service: "svc", impl: "real", version: "1.2.3" },
+      {
+        "kube_statefulset_status_replicas{": [{ metric: { statefulset: "postgres-pfire-postgres-pfire-k8db" }, value: [1, "1"] }],
+        "kube_statefulset_status_replicas_ready{": [{ metric: { statefulset: "postgres-pfire-postgres-pfire-k8db" }, value: [1, "0"] }],
+      },
+    )
+    try {
+      const res = await app.request("/api/admin/topology/status", { headers: adminHeaders })
+      const body = await res.json()
+      const services = body.services as Array<Record<string, any>>
+      const postgres = services.find((s) => s.name === "postgres")!
+      expect(postgres.reachable).toBe(false)
+      expect(postgres.replicas).toEqual({ desired: 1, ready: 0 })
+      // redis has no series at all → reachable false, null replicas (0 >= 0 guard aside, no data → degraded)
+      const redis = services.find((s) => s.name === "redis")!
+      expect(redis.reachable).toBe(false)
+    } finally {
+      orig.restore()
+    }
+  })
+
+  it("degrades a workload row to nulls when its Prometheus queries fail, without 500ing", async () => {
+    setServiceEnv()
+    process.env.PROMETHEUS_URL = "http://prom.example:9090"
+    process.env.K8S_NAMESPACE = "pfire"
+    const orig = mockFetch(
+      { service: "svc", impl: "real", version: "1.2.3" },
+      {
+        // deployment queries (incl. redis) answer fine
+        "kube_deployment_status_replicas{": [{ metric: { deployment: "redis" }, value: [1, "1"] }],
+        "kube_deployment_status_replicas_ready{": [{ metric: { deployment: "redis" }, value: [1, "1"] }],
+        // all postgres (statefulset) queries fail → that row degrades
+      },
+    )
+    // wrap to 500 the statefulset queries only
+    const inner = globalThis.fetch as unknown as (input: RequestInfo | URL) => Promise<Response>
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+      const query = url.includes("/api/v1/query") ? new URL(url).searchParams.get("query") ?? "" : ""
+      if (query.includes("kube_statefulset")) return new Response("boom", { status: 500 })
+      return inner(input)
+    }) as typeof fetch
+    try {
+      const res = await app.request("/api/admin/topology/status", { headers: adminHeaders })
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      const services = body.services as Array<Record<string, any>>
+      const postgres = services.find((s) => s.name === "postgres")!
+      expect(postgres.reachable).toBe(false)
+      expect(postgres.replicas).toBeNull()
+      expect(postgres.restarts).toBeNull()
+      expect(postgres.version).toBeUndefined()
+      // redis unaffected
+      const redis = services.find((s) => s.name === "redis")!
+      expect(redis.reachable).toBe(true)
+      expect(redis.replicas).toEqual({ desired: 1, ready: 1 })
     } finally {
       orig.restore()
     }
