@@ -5,6 +5,7 @@ import { moduleMeta } from "./meta.js"
 import { registerJobsRoutes } from "./jobs.js"
 import { registerSheetsSyncRoutes, SHEETS_SYNC_JOB_NAME, sheetsSyncImage } from "./sheets-sync.js"
 import { registerMarketDataRoutes, setMarketDataDb } from "./market-data.js"
+import { registerBondCatalogueRoutes, setBondCatalogueDb } from "./bond-catalogue.js"
 import { registerTopologyRoutes } from "./topology.js"
 import { probeServiceMetas } from "./service-probe.js"
 import { listJobVersions, listServiceImages } from "./jobs-version.js"
@@ -210,6 +211,7 @@ registerJobsRoutes(admin)
 // §24.9 — Google Sheets sync (admin-triggered jobshot Job)
 registerSheetsSyncRoutes(admin)
 registerMarketDataRoutes(admin)
+registerBondCatalogueRoutes(admin)
 registerTopologyRoutes(admin)
 
 app.route("/api/admin", admin)

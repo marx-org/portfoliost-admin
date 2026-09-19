@@ -4,6 +4,7 @@ import app from "./index.js"
 import { getDb } from "./db/index.js"
 import { startJobPoller } from "./jobs.js"
 import { setMarketDataDb } from "./market-data.js"
+import { setBondCatalogueDb } from "./bond-catalogue.js"
 
 const port = parseInt(process.env.PORT ?? "3000", 10)
 
@@ -12,4 +13,5 @@ serve({ fetch: app.fetch, port }, () => {
   const db = getDb()
   startJobPoller(db)
   setMarketDataDb(db)
+  setBondCatalogueDb(db)
 })
