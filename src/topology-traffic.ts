@@ -1,5 +1,6 @@
 import { queryInstant, seriesMap } from "./prometheus.js"
 import { serviceTargets } from "./service-probe.js"
+import { workloadTargets } from "./workload-probe.js"
 import type { components } from "./generated/api-types"
 
 type TopologyServiceTraffic = components["schemas"]["TopologyServiceTraffic"]
@@ -123,6 +124,54 @@ function buildService(
   }
 }
 
+// Run a scalar instant query (a `sum(...)` with no grouping) and return the
+// first series value, or null on failure / no series. Null (not zero) so a
+// missing exporter scrape reads as "unknown", not "flatlined at 0".
+async function queryScalar(query: string): Promise<number | null> {
+  try {
+    const series = await queryInstant(query)
+    if (series.length === 0) return null
+    const v = Number.parseFloat(series[0].value[1])
+    return Number.isFinite(v) ? v : null
+  } catch (error) {
+    console.error("topology/traffic: scalar Prometheus query failed:", error)
+    return null
+  }
+}
+
+// One resource-metrics row for a k8s workload (postgres/redis): CPU + memory
+// from cAdvisor, plus postgres-only connections/tx-per-min from the Crunchy
+// exporter (null until the exporter is actually scraped). Degrades per field —
+// a failing query nulls that field, never throws.
+async function buildWorkloadTraffic(id: string, podRe: string, container: string, withPg: boolean): Promise<TopologyServiceTraffic> {
+  const ns = namespace()
+  const cpuQ = `sum(rate(container_cpu_usage_seconds_total{namespace=~"${ns}", pod=~"${podRe}", container="${container}"}[5m]))`
+  const memQ = `sum(container_memory_working_set_bytes{namespace=~"${ns}", pod=~"${podRe}", container="${container}"})`
+  const [cpuCores, memoryBytes] = await Promise.all([queryScalar(cpuQ), queryScalar(memQ)])
+
+  const row: TopologyServiceTraffic = {
+    name: id,
+    requestsPerMin: null,
+    errorRate: null,
+    p99LatencyMs: null,
+    cpuCores: cpuCores != null ? round(cpuCores, 4) : null,
+    memoryBytes: memoryBytes != null ? round(memoryBytes) : null,
+    connections: null,
+    source: "prometheus",
+  }
+
+  if (withPg) {
+    const [connections, xactRate] = await Promise.all([
+      queryScalar(`sum(pg_stat_activity_count{namespace=~"${ns}"})`),
+      queryScalar(`(sum(rate(pg_stat_database_xact_commit{namespace=~"${ns}"}[5m])) + sum(rate(pg_stat_database_xact_rollback{namespace=~"${ns}"}[5m]))) * 60`),
+    ])
+    row.connections = connections != null ? round(connections) : null
+    row.requestsPerMin = xactRate != null ? round(xactRate, 2) : null
+  }
+
+  return row
+}
+
 // D55-4 — topology traffic: per-service request rate / error rate / P99 latency,
 // preferring D56 OTel http server metrics and falling back to nginx-ingress
 // controller metrics per service. Also returns cachest per-upstream-provider P99
@@ -148,22 +197,21 @@ export async function loadTrafficData(): Promise<TopologyTrafficResponse> {
   ])
 
   const anyOk = [otelRate, otelErr, otelP99, cachestP99, ingRate, ingErr, ingP99, gwRate, gwErr, gwP99].some((r) => r.ok)
-  if (!anyOk) {
-    return { services: [], cachestProviders: [], fetchedAt }
-  }
 
-  const services: TopologyServiceTraffic[] = serviceTargets().map((t) => {
-    const name = t.name
-    if (otelRate.map.has(name) || otelErr.map.has(name) || otelP99.map.has(name)) {
-      return buildService(name, "otel", otelRate.map.get(name) ?? 0, otelErr.map.get(name) ?? 0, otelP99.map.get(name) ?? 0)
-    }
-    if (ingRate.map.has(name) || ingErr.map.has(name) || ingP99.map.has(name)) {
-      return buildService(name, "ingress", ingRate.map.get(name) ?? 0, ingErr.map.get(name) ?? 0, ingP99.map.get(name) ?? 0)
-    }
-    return buildService(name, "none", 0, 0, 0)
-  })
+  const services: TopologyServiceTraffic[] = anyOk
+    ? serviceTargets().map((t) => {
+        const name = t.name
+        if (otelRate.map.has(name) || otelErr.map.has(name) || otelP99.map.has(name)) {
+          return buildService(name, "otel", otelRate.map.get(name) ?? 0, otelErr.map.get(name) ?? 0, otelP99.map.get(name) ?? 0)
+        }
+        if (ingRate.map.has(name) || ingErr.map.has(name) || ingP99.map.has(name)) {
+          return buildService(name, "ingress", ingRate.map.get(name) ?? 0, ingErr.map.get(name) ?? 0, ingP99.map.get(name) ?? 0)
+        }
+        return buildService(name, "none", 0, 0, 0)
+      })
+    : []
 
-  if (gatewayConfigured) {
+  if (anyOk && gatewayConfigured) {
     const host = ingressGatewayHost()
     const hasData = gwRate.map.has(host) || gwErr.map.has(host) || gwP99.map.has(host)
     services.push(
@@ -181,6 +229,17 @@ export async function loadTrafficData(): Promise<TopologyTrafficResponse> {
     provider,
     p99LatencyMs: round(seconds * 1000),
   }))
+
+  // k8s-only storage workloads (postgres/redis): cAdvisor CPU/mem (+ Crunchy
+  // exporter connections/tx-min for postgres). Appended after the HTTP service
+  // rows only when Prometheus is actually reachable; each field degrades
+  // independently on query failure.
+  if (anyOk) {
+    const workloadRows = await Promise.all(
+      workloadTargets().map((t) => buildWorkloadTraffic(t.id, t.podRe, t.container, t.id === "postgres")),
+    )
+    services.push(...workloadRows)
+  }
 
   return { services, cachestProviders, fetchedAt }
 }
