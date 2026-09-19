@@ -20,7 +20,7 @@ const KIND      = "sheets_sync"
 
 // Pinned release image; override via env for canary/dev.
 function sheetsSyncImage(): string {
-  return process.env.SHEETS_SYNC_IMAGE ?? "ghcr.io/marx2/portfoliost-sheets-sync:v1.0.2"
+  return process.env.SHEETS_SYNC_IMAGE ?? "ghcr.io/marx2/portfoliost-sheets-sync:v1.0.3"
 }
 
 function buildSheetsSyncSpec(wipe: boolean, callerToken: string): JobshotRunPayload {
