@@ -10,7 +10,11 @@ export interface WorkloadTarget {
   sts?: string
   /** Deployment name (kind === "deployment") */
   name?: string
-  /** Pod name regex for cAdvisor / kube_pod_container_info */
+  /**
+   * Pod name regex for cAdvisor / kube_pod_container_info. PromQL `=~` matchers
+   * are fully anchored (`^(...)$`), so write the pattern as prefix + `.*` with
+   * no explicit ^ (e.g. `redis-.*` matches `redis-…` but not `ib-redis`).
+   */
   podRe: string
   /** Container name inside the pod (for image tag + resource metrics) */
   container: string
@@ -30,14 +34,14 @@ export function workloadTargets(): WorkloadTarget[] {
       id: "postgres",
       kind: "statefulset",
       sts: process.env.TOPOLOGY_POSTGRES_STATEFULSET ?? "postgres-pfire-postgres-pfire-k8db",
-      podRe: "^postgres-pfire-postgres-pfire-",
+      podRe: "postgres-pfire-postgres-pfire-.*",
       container: "database",
     },
     {
       id: "redis",
       kind: "deployment",
       name: "redis",
-      podRe: "^redis-",
+      podRe: "redis-.*",
       container: "main",
     },
   ]
