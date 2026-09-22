@@ -42,8 +42,8 @@ describe("Admin proxies hit module /api-prefixed routes", () => {
     "X-User-Groups": "portfoliost_admin",
   }
 
-  it("proxies currencies/rates to wallets /api/admin/fx-rates", async () => {
-    process.env.API_WALLETS_URL = "http://wallets:3000"
+  it("proxies currencies/rates to instruments /api/admin/fx-rates (§48)", async () => {
+    process.env.API_INSTRUMENTS_URL = "http://instruments:3000"
     delete process.env.API_USERS_AUTH_URL
     const seen: string[] = []
     const origFetch = globalThis.fetch
@@ -57,10 +57,10 @@ describe("Admin proxies hit module /api-prefixed routes", () => {
     try {
       const res = await app.request("/api/admin/currencies/rates?page=2", { headers: adminHeaders })
       expect(res.status).toBe(200)
-      expect(seen[0]).toBe("http://wallets:3000/api/admin/fx-rates?page=2")
+      expect(seen[0]).toBe("http://instruments:3000/api/admin/fx-rates?page=2")
     } finally {
       globalThis.fetch = origFetch
-      delete process.env.API_WALLETS_URL
+      delete process.env.API_INSTRUMENTS_URL
     }
   })
 
@@ -68,7 +68,7 @@ describe("Admin proxies hit module /api-prefixed routes", () => {
     process.env.API_USERS_AUTH_URL = "http://users-auth:3000"
     process.env.POCKETID_BASE_URL = "https://pocket-id.example"
     process.env.POCKETID_ADMIN_API_KEY = "test-key"
-    delete process.env.API_WALLETS_URL
+    delete process.env.API_INSTRUMENTS_URL
     const origFetch = globalThis.fetch
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
@@ -116,7 +116,7 @@ describe("Admin proxies hit module /api-prefixed routes", () => {
 
   it("degrades identity fields to nulls when PocketID is not configured", async () => {
     process.env.API_USERS_AUTH_URL = "http://users-auth:3000"
-    delete process.env.API_WALLETS_URL
+    delete process.env.API_INSTRUMENTS_URL
     delete process.env.POCKETID_BASE_URL
     delete process.env.POCKETID_ADMIN_API_KEY
     const origFetch = globalThis.fetch
