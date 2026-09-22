@@ -68,10 +68,10 @@ admin.get("/system/versions", async (c) => {
   return c.json({ services: [...servicesOut, ...jobs], fetchedAt: new Date().toISOString() })
 })
 
-// D47 — proxy to wallets admin FX rates
+// D47 — proxy to instruments admin FX rates (§48: fx_rates moved to instruments)
 admin.get("/currencies/rates", async (c) => {
-  const walletsUrl = process.env.API_WALLETS_URL
-  if (!walletsUrl) return c.json({ items: [], pagination: { total: 0, page: 1, per_page: 50, total_pages: 0 } })
+  const instrumentsUrl = process.env.API_INSTRUMENTS_URL
+  if (!instrumentsUrl) return c.json({ items: [], pagination: { total: 0, page: 1, per_page: 50, total_pages: 0 } })
 
   const params = new URLSearchParams()
   for (const key of ["page", "per_page", "sort_by", "sort_dir", "base_currency", "quote_currency", "date_from", "date_to"]) {
@@ -81,7 +81,7 @@ admin.get("/currencies/rates", async (c) => {
 
   try {
     const authHeader = c.req.header("Authorization") ?? ""
-    const res = await fetch(`${walletsUrl}/api/admin/fx-rates?${params}`, {
+    const res = await fetch(`${instrumentsUrl}/api/admin/fx-rates?${params}`, {
       headers: { Authorization: authHeader },
       signal: AbortSignal.timeout(5000),
     })
