@@ -60,6 +60,17 @@ export function buildPriceAuditSpec(
     secretName: "postgres-pfire-pguser-portfoliost",
     env: {
       INSTRUMENTS_URL: process.env.API_INSTRUMENTS_URL as string,
+      // §72.8 — the token goes over WITH its "Bearer " prefix, verbatim from the
+      // request. The audit routes credentials with `instrumentsAuthHeaders`, which
+      // decides the header by looking for that prefix: Bearer → `Authorization`,
+      // anything else → `X-Service-Token`. Passing the stripped token (as
+      // sheets-sync does, because its client re-prepends) therefore sent a user
+      // JWT to X-Service-Token, instruments compared it against
+      // INSTRUMENTS_SERVICE_TOKEN, and every call 401'd. The audit then reported
+      // "every trade reconciles" over 219 symbols it had never actually checked.
+      //
+      // A 401 from that path is indistinguishable from "no data", so the audit
+      // also refuses to claim success when nothing was checked.
       INSTRUMENTS_AUTH_TOKEN: callerToken,
     },
     volumes: [],
@@ -91,10 +102,18 @@ export function registerPriceAuditRoutes(admin: Hono) {
     }
 
     const authHeader = c.req.header("authorization") ?? ""
-    const callerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : authHeader
-    if (!callerToken) {
+    if (!authHeader) {
       return c.json({ error: "Missing Authorization header" }, 401)
     }
+    // §72.8 — passed on VERBATIM, prefix included. Do not strip it.
+    // `instrumentsAuthHeaders` (wallets) chooses the header by looking for
+    // "Bearer ": Bearer → Authorization, anything else → X-Service-Token, which
+    // instruments then compares against INSTRUMENTS_SERVICE_TOKEN and rejects.
+    // Stripping here — the pattern sheets-sync uses, because its own client
+    // re-prepends — put a valid user JWT on the wrong header, so every bar read
+    // 401'd, 401 looked exactly like "no bars", and the audit reported
+    // "every trade reconciles" over 219 symbols it had checked none of.
+    const callerToken = authHeader
 
     // Duplicate-run guard — jobshot also rejects a running same-name job, but
     // short-circuit so the SPA gets a clean 409.

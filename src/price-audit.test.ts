@@ -49,6 +49,18 @@ describe("Price audit job API (§72)", () => {
     globalThis.fetch = origFetch
   })
 
+  it("§72.8: hands the token over WITH its Bearer prefix", async () => {
+    // The job got a 401 on every call in PROD and reported a clean result. The
+    // token was valid; it was sent as X-Service-Token instead of Authorization
+    // because it arrived stripped. sheets-sync strips for the same reason — its
+    // client re-prepends — and copying that pattern here was the bug.
+    const bodies = mockJobshot()
+    await app.request("/api/admin/jobs/price-audit/run", { method: "POST", headers: authed, body: "{}" })
+    const token: string = bodies[0].env.INSTRUMENTS_AUTH_TOKEN
+    expect(token.startsWith("Bearer "), `token must keep its prefix, got: ${token.slice(0, 12)}…`).toBe(true)
+    expect(token).toBe(`Bearer ${JWT}`)
+  })
+
   it("starts the job in the WALLETS image with the caller's token", async () => {
     const bodies = mockJobshot()
     const res = await app.request("/api/admin/jobs/price-audit/run", { method: "POST", headers: authed, body: "{}" })
@@ -60,7 +72,7 @@ describe("Price audit job API (§72)", () => {
     expect(spec.container).toBe(walletsImage())
     expect(spec.container).toContain("portfoliost-wallets")
     // The caller's own JWT, not a service token the cluster would have to mount.
-    expect(spec.env.INSTRUMENTS_AUTH_TOKEN).toBe(JWT)
+    expect(spec.env.INSTRUMENTS_AUTH_TOKEN).toBe(`Bearer ${JWT}`)
     expect(spec.env.INSTRUMENTS_SERVICE_TOKEN).toBeUndefined()
   })
 
