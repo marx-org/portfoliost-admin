@@ -4,6 +4,7 @@ import { validateJwt, userIdentityMiddleware, requireGroup } from "./auth.js"
 import { moduleMeta } from "./meta.js"
 import { registerJobsRoutes } from "./jobs.js"
 import { registerSheetsSyncRoutes, SHEETS_SYNC_JOB_NAME, sheetsSyncImage } from "./sheets-sync.js"
+import { registerPriceAuditRoutes } from "./price-audit.js"
 import { registerMarketDataRoutes, setMarketDataDb } from "./market-data.js"
 import { registerBondCatalogueRoutes, setBondCatalogueDb } from "./bond-catalogue.js"
 import { registerTopologyRoutes } from "./topology.js"
@@ -210,6 +211,8 @@ async function fetchPocketIdUsers(): Promise<Map<string, PocketIdIdentity>> {
 registerJobsRoutes(admin)
 // §24.9 — Google Sheets sync (admin-triggered jobshot Job)
 registerSheetsSyncRoutes(admin)
+// §72 — price audit (admin-triggered jobshot Job; script lives in the wallets image)
+registerPriceAuditRoutes(admin)
 registerMarketDataRoutes(admin)
 registerBondCatalogueRoutes(admin)
 registerTopologyRoutes(admin)
