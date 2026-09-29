@@ -5,6 +5,7 @@ import { moduleMeta } from "./meta.js"
 import { registerJobsRoutes } from "./jobs.js"
 import { registerSheetsSyncRoutes, SHEETS_SYNC_JOB_NAME, sheetsSyncImage } from "./sheets-sync.js"
 import { registerPriceAuditRoutes } from "./price-audit.js"
+import { registerFxBackfillRoutes } from "./fx-backfill.js"
 import { registerMarketDataRoutes, setMarketDataDb } from "./market-data.js"
 import { registerBondCatalogueRoutes, setBondCatalogueDb } from "./bond-catalogue.js"
 import { registerTopologyRoutes } from "./topology.js"
@@ -213,6 +214,8 @@ registerJobsRoutes(admin)
 registerSheetsSyncRoutes(admin)
 // §72 — price audit (admin-triggered jobshot Job; script lives in the wallets image)
 registerPriceAuditRoutes(admin)
+// §72.24 — the FX history importer has existed since D25 and is wired to nothing.
+registerFxBackfillRoutes(admin)
 registerMarketDataRoutes(admin)
 registerBondCatalogueRoutes(admin)
 registerTopologyRoutes(admin)
