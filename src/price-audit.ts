@@ -154,6 +154,29 @@ export function registerPriceAuditRoutes(admin: Hono) {
     }
   })
 
+  // GET /api/admin/jobs/price-audit/log
+  // §72.22 — the findings themselves. `/status` already passes `details` through,
+  // but it was always null: the audit wrote its report to stdout and nothing
+  // persisted it, so the Data quality card could start a run and confirm it
+  // finished without being able to show what it found. The script now upserts its
+  // report into `admin.job_run.details`, and this is the route that serves it.
+  //
+  // 404 rather than 200-with-null when there is no run, so the SPA can say "never
+  // run" instead of showing an empty report that looks like a clean result.
+  admin.get("/jobs/price-audit/log", async (c) => {
+    const db = getJobsDb()
+    if (!db) return c.json({ error: "NotFound", message: "no database" }, 404)
+    const row = await getJobRun(db, PRICE_AUDIT_JOB_NAME).catch(() => null)
+    if (!row) return c.json({ error: "NotFound", message: "no price-audit run recorded" }, 404)
+    return c.json({
+      jobName: row.name,
+      status: row.status,
+      startedAt: row.startedAt ? row.startedAt.toISOString() : null,
+      updatedAt: row.updatedAt ? row.updatedAt.toISOString() : null,
+      report: row.details ?? null,
+    })
+  })
+
   // GET /api/admin/jobs/price-audit/status
   // DB row first (kept fresh by the backend poller); live jobshot proxy only
   // when the job was never triggered from this backend.

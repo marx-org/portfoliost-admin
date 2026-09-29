@@ -129,6 +129,25 @@ describe("Price audit job API (§72)", () => {
     expect(await res.json()).toHaveProperty("status")
   })
 
+  // §72.22 — the run's findings used to exist only in the Job's stdout, so the
+  // Data quality card could start an audit and confirm it finished without ever
+  // showing what it found. The script now upserts its report into
+  // `admin.job_run.details`; this route serves it.
+  //
+  // Only the no-DB path is covered here, and that is the repo's existing
+  // convention rather than a shortcut: `jobs.test.ts` asserts the same fallback for
+  // `/jobs/stooq-import/log` because there is no jobs-DB harness in this suite
+  // (`getJobsDb()` is null throughout). Standing up a harness to reach the happy
+  // path would be a larger change than the feature it tests.
+  it("§72.22: /log 404s rather than returning an empty report when there is no run", async () => {
+    // A 200 with `report: null` renders as a blank report, which reads as a clean
+    // result — the same "everything reconciled when nothing was checked" failure
+    // the audit already had once, in a worse form.
+    mockJobshot()
+    const res = await app.request("/api/admin/jobs/price-audit/log", { headers: authed })
+    expect(res.status).toBe(404)
+  })
+
   it("defaults the image to a pinned wallets release, never :latest", () => {
     // An unpinned image would let a wallets release change the audit under us.
     expect(walletsImage()).toMatch(/^ghcr\.io\/marx2\/portfoliost-wallets:v\d+\.\d+\.\d+$/)
