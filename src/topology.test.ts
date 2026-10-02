@@ -503,6 +503,48 @@ describe("GET /api/admin/topology/traffic (D55)", () => {
     }
   })
 
+  it("resolves cachestProviders through the label fallback too (§80.6)", async () => {
+    // The service rows go through queryMapByLabel, but cachest's own P99 hardcoded
+    // `service_name="cachest"` — a label this cluster's exporter never emits, so
+    // the query matched nothing and cachestProviders was permanently [].
+    // Verified against live Prometheus on 2026-09-02:
+    // count(http_client_request_duration_seconds_bucket{service_name="cachest"}) → empty.
+    setServiceEnv()
+    process.env.PROMETHEUS_URL = "http://prom.example:9090"
+    const orig = mockFetch(
+      { service: "svc", impl: "real", version: "1.2.3" },
+      {
+        "http_server_request_duration_seconds_count[5m])": [{ metric: { job: "portfoliost-admin" }, value: [1, "0.5"] }],
+        // Only the `job`-labelled matcher resolves; the service_name variant
+        // stays empty and the probe moves on, exactly as the cluster behaves.
+        'http_client_request_duration_seconds_bucket{job="cachest"}': [
+          { metric: { server_address: "openst" }, value: [1, "0.1"] }, // 100 ms
+          { metric: { server_address: "fmp" }, value: [1, "0.25"] }, // 250 ms
+        ],
+      },
+    )
+    try {
+      const res = await app.request("/api/admin/topology/traffic", { headers: adminHeaders })
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.cachestProviders).toEqual([
+        { provider: "openst", p99LatencyMs: 100 },
+        { provider: "fmp", p99LatencyMs: 250 },
+      ])
+
+      // The query that resolved carries no unresolvable label filter: the
+      // service_name attempt is allowed to be tried, it just must not be the one
+      // that decides the (empty) result.
+      const cachestQueries = orig.seenPromQueries.filter((q) => q.includes("http_client_request_duration_seconds_bucket"))
+      expect(cachestQueries.length).toBeGreaterThan(1)
+      expect(cachestQueries[0]).toContain('service_name="cachest"')
+      expect(cachestQueries.some((q) => q.includes('job="cachest"'))).toBe(true)
+      expect(cachestQueries.filter((q) => q.includes('service_name="cachest"')).length).toBe(1)
+    } finally {
+      orig.restore()
+    }
+  })
+
   it("appends the nginx-gateway aggregate when INGRESS_APP_HOST is set", async () => {
     setServiceEnv()
     process.env.PROMETHEUS_URL = "http://prom.example:9090"

@@ -25,9 +25,12 @@ const OTEL_P99_BASE = (label: string) =>
   `histogram_quantile(0.99, sum by (le, ${label}) (rate(http_server_request_duration_seconds_bucket[5m])))`
 
 // cachest outbound latency per upstream provider (D56-3: httpx instrumented,
-// labelled by server_address, filtered to the cachest service itself).
-const CACHEST_P99_Q =
-  `histogram_quantile(0.99, sum by (le, server_address) (rate(http_client_request_duration_seconds_bucket{service_name="cachest"}[5m])))`
+// labelled by server_address). The service identity goes through LABEL_PREF like
+// the service rows do: the OTel exporter in this cluster emits `job` and
+// `service` and no `service_name`, so a hardcoded service_name filter matched
+// nothing and cachestProviders was permanently [] (§80.6).
+const CACHEST_P99_BASE = (label: string) =>
+  `histogram_quantile(0.99, sum by (le, server_address) (rate(http_client_request_duration_seconds_bucket{${label}="cachest"}[5m])))`
 
 // ── nginx ingress controller fallback — used when D56 OTel metrics are absent ──
 function ingressRateQ(): string {
@@ -95,9 +98,12 @@ async function queryMapByLabel(baseQuery: string): Promise<QueryResult> {
 
 // Histogram quantile queries group by `le` plus the identity label, so the
 // preference order is resolved at the query level instead of in code.
-async function queryP99ByLabel(baseQuery: (label: string) => string): Promise<QueryResult> {
+// `indexLabel` differs from the identity label when the rows are grouped by
+// something else — cachest's P99 groups by `le, server_address` while the
+// identity label only appears in the filter.
+async function queryP99ByLabel(baseQuery: (label: string) => string, indexLabel?: string): Promise<QueryResult> {
   for (const label of LABEL_PREF) {
-    const res = await queryMap(baseQuery(label), label)
+    const res = await queryMap(baseQuery(label), indexLabel ?? label)
     if (res.ok && res.map.size > 0) return res
   }
   return { map: new Map<string, number>(), ok: false }
@@ -189,7 +195,7 @@ export async function loadTrafficData(): Promise<TopologyTrafficResponse> {
     queryMapByLabel(OTEL_RATE_BASE),
     queryMapByLabel(OTEL_ERR_BASE),
     queryP99ByLabel(OTEL_P99_BASE),
-    queryMap(CACHEST_P99_Q, "server_address"),
+    queryP99ByLabel(CACHEST_P99_BASE, "server_address"),
     queryMap(ingressRateQ(), "service"),
     queryMap(ingressErrQ(), "service"),
     queryMap(ingressP99Q(), "service"),
