@@ -8,6 +8,7 @@
     "start": "node dist/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
+    "check:cronjobs": "node scripts/check-cronjobs.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "gen:types": "openapi-typescript node_modules/@marx2/contracts/openapi.yaml -o src/generated/api-types.d.ts"
