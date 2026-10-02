@@ -1,0 +1,73 @@
+{
+  "capturedAt": "2026-10-02",
+  "source": "kubectl get cronjobs -n pfire -o json",
+  "note": "portfoliost-owned CronJobs only — the pfire namespace is shared, so ownership is curated from the homelab manifests (cluster/apps/pfire/*/app/), not from the namespace listing. Verified against the cluster by scripts/check-cronjobs.mjs; --refresh rewrites this file. Image tags are captured for reference and are not compared — they move on every release.",
+  "cronjobs": [
+    {
+      "name": "openst-bond-archive",
+      "schedule": "0 6 3 * *",
+      "suspend": false,
+      "image": "ghcr.io/marx2/openst:v1.1.44"
+    },
+    {
+      "name": "openst-bond-import",
+      "schedule": "30 4 * * *",
+      "suspend": false,
+      "image": "ghcr.io/marx2/openst:v1.1.44"
+    },
+    {
+      "name": "openst-cpi-import",
+      "schedule": "30 4 * * *",
+      "suspend": false,
+      "image": "ghcr.io/marx2/openst:v1.1.44"
+    },
+    {
+      "name": "openst-cpi-seed",
+      "schedule": "0 5 1 1 *",
+      "suspend": true,
+      "image": "ghcr.io/marx2/openst:v1.1.44"
+    },
+    {
+      "name": "portfoliost-instruments-corpbondsync",
+      "schedule": "45 4 * * *",
+      "suspend": false,
+      "image": "ghcr.io/marx2/portfoliost-instruments:v1.0.91"
+    },
+    {
+      "name": "portfoliost-instruments-fundcategorysync",
+      "schedule": "15 5 * * *",
+      "suspend": false,
+      "image": "ghcr.io/marx2/portfoliost-instruments:v1.0.91"
+    },
+    {
+      "name": "portfoliost-instruments-fxsync",
+      "schedule": "10 17 * * *",
+      "suspend": false,
+      "image": "ghcr.io/marx2/portfoliost-instruments:v1.0.91"
+    },
+    {
+      "name": "portfoliost-instruments-tickersync",
+      "schedule": "30 4 * * 1",
+      "suspend": false,
+      "image": "ghcr.io/marx2/portfoliost-instruments:v1.0.91"
+    },
+    {
+      "name": "portfoliost-wallets-snapshotsync",
+      "schedule": "0 13 * * *",
+      "suspend": false,
+      "image": "ghcr.io/marx2/portfoliost-wallets:v1.1.118"
+    },
+    {
+      "name": "stooq-downloader",
+      "schedule": "0 3 * * 0",
+      "suspend": true,
+      "image": "ghcr.io/marx2/stooq-downloader:v1.0.2"
+    },
+    {
+      "name": "stooq-importer",
+      "schedule": "@yearly",
+      "suspend": true,
+      "image": "dimitri/pgloader:ccl.latest"
+    }
+  ]
+}
