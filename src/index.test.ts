@@ -6,7 +6,12 @@ import app from "./index.js"
 
 vi.mock("./jobs-version.js", () => ({
   listJobVersions: vi.fn(async () => [
-    { name: "portfoliost-wallets-fxsync", version: "ghcr.io/marx2/portfoliost-wallets:v1.1.28", impl: "job" },
+    {
+      name: "portfoliost-instruments-fxsync",
+      version: "ghcr.io/marx2/portfoliost-instruments:v1.0.28",
+      impl: "job",
+      schedule: "10 17 * * *",
+    },
     { name: "jobshot", version: "ghcr.io/marx2/jobshot:1.6.1", impl: "job" },
   ]),
   listServiceImages: vi.fn(async () => [
@@ -281,7 +286,7 @@ describe("Admin API authorization (D50)", () => {
     }
   })
 
-  it("appends job container versions tagged as 'job'", async () => {
+  it("appends job container versions tagged as 'job', with their schedule", async () => {
     const origFetch = globalThis.fetch
     globalThis.fetch = (async () => new Response("Not Found", { status: 404 })) as typeof fetch
     try {
@@ -294,12 +299,20 @@ describe("Admin API authorization (D50)", () => {
       })
       expect(res.status).toBe(200)
       const body = await res.json()
-      const jobs = (body.services as { service: string; impl: string }[]).filter((s) => s.impl === "job")
+      const jobs = (body.services as { service: string; impl: string; schedule?: string; suspended?: boolean }[]).filter(
+        (s) => s.impl === "job",
+      )
       expect(jobs.map((j) => j.service)).toEqual([
-        "portfoliost-wallets-fxsync",
+        "portfoliost-instruments-fxsync",
         "jobshot",
         "portfoliost-sheets-sync",
       ])
+      // The SPA renders a CronJob as "Job · Scheduled" from this (§80.1), so
+      // the field has to survive the endpoint; jobshot is a Deployment and
+      // carries neither schedule nor suspended.
+      expect(jobs[0].schedule).toBe("10 17 * * *")
+      expect(jobs[0].suspended).toBeUndefined()
+      expect(jobs[1].schedule).toBeUndefined()
     } finally {
       globalThis.fetch = origFetch
     }

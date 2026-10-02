@@ -51,8 +51,16 @@ admin.get("/system/versions", async (c) => {
   const results = await probeServiceMetas()
 
   // Jobs run as standalone containers in the portfoliost set — report the
-  // image ref currently pinned in the cluster (read live from the k8s API).
-  const jobs = (await listJobVersions()).map((j) => ({ service: j.name, version: j.version, impl: j.impl }))
+  // image ref currently pinned in the cluster (read live from the k8s API),
+  // plus the schedule and suspend flag so the SPA can tell a scheduled job
+  // from a suspended one (§80.1).
+  const jobs = (await listJobVersions()).map((j) => ({
+    service: j.name,
+    version: j.version,
+    impl: j.impl,
+    ...(j.schedule ? { schedule: j.schedule } : {}),
+    ...(j.suspended ? { suspended: true } : {}),
+  }))
 
   // sheets-sync is an on-demand jobshot Job (no CronJob) — its image is pinned
   // in the admin backend (code default / SHEETS_SYNC_IMAGE env), so append it
