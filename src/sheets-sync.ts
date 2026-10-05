@@ -19,8 +19,24 @@ const NAMESPACE = "pfire"
 const KIND      = "sheets_sync"
 
 // Pinned release image; override via env for canary/dev.
+//
+// The fallback is only reached when SHEETS_SYNC_IMAGE is absent, and it is
+// deliberately NOT a moving target — a silently-current default would launch a
+// Job whose payload the deployed wallets may reject, and the import schema is
+// version-coupled. It was pinned at v1.0.3 for months while production ran
+// v1.0.36, so anyone deploying admin without the env got an importer three dozen
+// releases behind, sending a payload the live API might refuse.
+//
+// Fail loudly instead: the env is required, and its absence is a deployment
+// error worth surfacing rather than papering over with a stale tag.
 export function sheetsSyncImage(): string {
-  return process.env.SHEETS_SYNC_IMAGE ?? "ghcr.io/marx2/portfoliost-sheets-sync:v1.0.3"
+  const override = process.env.SHEETS_SYNC_IMAGE
+  if (override) return override
+  throw new Error(
+    "SHEETS_SYNC_IMAGE is not set — refusing to launch a sheets-sync Job with a " +
+      "default image whose payload the deployed wallets may reject. Set it in the " +
+      "admin HelmRelease alongside the admin image tag.",
+  )
 }
 
 function buildSheetsSyncSpec(wipe: boolean, callerToken: string): JobshotRunPayload {

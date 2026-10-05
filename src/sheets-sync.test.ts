@@ -9,6 +9,8 @@ const adminHeaders = {
 
 const JWT = "test-jwt-token-123"
 
+let origSyncImage: string | undefined
+
 const authedHeaders = {
   ...adminHeaders,
   "Content-Type": "application/json",
@@ -65,9 +67,13 @@ describe("Sheets sync jobs API (§24.9)", () => {
     origFetch = globalThis.fetch
     origWalletsUrl = process.env.API_WALLETS_URL
     origDbUrl = process.env.DATABASE_URL
+    origSyncImage = process.env.SHEETS_SYNC_IMAGE
     process.env.API_JOBSHOT_URL = "http://jobshot-test:3000"
     process.env.API_WALLETS_URL = "http://wallets-test:3000"
     process.env.DATABASE_URL = "postgres://test:test@localhost:5432/test"
+    // Set as the HelmRelease does. The fallback was silently three dozen
+    // releases behind, so production must supply it and the tests should too.
+    process.env.SHEETS_SYNC_IMAGE = "ghcr.io/marx2/portfoliost-sheets-sync:v1.0.37"
   })
 
   afterEach(() => {
@@ -77,6 +83,8 @@ describe("Sheets sync jobs API (§24.9)", () => {
     else delete process.env.API_WALLETS_URL
     if (origDbUrl !== undefined) process.env.DATABASE_URL = origDbUrl
     else delete process.env.DATABASE_URL
+    if (origSyncImage !== undefined) process.env.SHEETS_SYNC_IMAGE = origSyncImage
+    else delete process.env.SHEETS_SYNC_IMAGE
   })
 
   // ── POST /api/admin/jobs/sheets-sync/run ──────────────────────────────────
@@ -131,7 +139,7 @@ describe("Sheets sync jobs API (§24.9)", () => {
       const payload = mock.runBodies[0] as any
       expect(payload.name).toBe("portfoliost-sheets-sync")
       expect(payload.namespace).toBe("pfire")
-      expect(payload.container).toBe("ghcr.io/marx2/portfoliost-sheets-sync:v1.0.3")
+      expect(payload.container).toBe("ghcr.io/marx2/portfoliost-sheets-sync:v1.0.37")
       expect(payload.entrypoint).toEqual(["node", "dist/sync.js"])
       expect(payload.parameters).toEqual([])
       expect(payload.secretName).toBe("sheets-sync-secrets")
