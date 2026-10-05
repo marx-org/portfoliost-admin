@@ -318,34 +318,30 @@ describe("Admin API authorization (D50)", () => {
     }
   })
 
-  it("reports the pinned sheets-sync job image, honoring SHEETS_SYNC_IMAGE override", async () => {
+  it("reports the pinned sheets-sync job image, and says so when the env is absent", async () => {
     const origFetch = globalThis.fetch
     globalThis.fetch = (async () => new Response("Not Found", { status: 404 })) as typeof fetch
     const prevEnv = process.env.SHEETS_SYNC_IMAGE
+    const headers = {
+      "X-User-Id": "admin-1",
+      "X-User-Email": "admin@example.com",
+      "X-User-Groups": "portfoliost_admin",
+    }
     try {
+      // Absent is now a reported configuration error rather than a silent
+      // fallback to a stale tag. A default three dozen releases behind is how the
+      // import payload drifts out of step with the wallets that must accept it.
       delete process.env.SHEETS_SYNC_IMAGE
-      let res = await app.request("/api/admin/system/versions", {
-        headers: {
-          "X-User-Id": "admin-1",
-          "X-User-Email": "admin@example.com",
-          "X-User-Groups": "portfoliost_admin",
-        },
-      })
-      let jobs = (await res.json()).services.filter((s: { impl: string }) => s.impl === "job")
-      let sheets = jobs.find((j: { service: string }) => j.service === "portfoliost-sheets-sync")
-      expect(sheets.version).toBe("ghcr.io/marx2/portfoliost-sheets-sync:v1.0.3")
+      const res = await app.request("/api/admin/system/versions", { headers })
+      const jobs = (await res.json()).services.filter((s: { impl: string }) => s.impl === "job")
+      const sheets = jobs.find((j: { service: string }) => j.service === "portfoliost-sheets-sync")
+      expect(String(sheets.version)).toContain("SHEETS_SYNC_IMAGE")
 
       process.env.SHEETS_SYNC_IMAGE = "ghcr.io/marx2/portfoliost-sheets-sync:v9.9.9"
-      res = await app.request("/api/admin/system/versions", {
-        headers: {
-          "X-User-Id": "admin-1",
-          "X-User-Email": "admin@example.com",
-          "X-User-Groups": "portfoliost_admin",
-        },
-      })
-      jobs = (await res.json()).services.filter((s: { impl: string }) => s.impl === "job")
-      sheets = jobs.find((j: { service: string }) => j.service === "portfoliost-sheets-sync")
-      expect(sheets.version).toBe("ghcr.io/marx2/portfoliost-sheets-sync:v9.9.9")
+      const res2 = await app.request("/api/admin/system/versions", { headers })
+      const jobs2 = (await res2.json()).services.filter((s: { impl: string }) => s.impl === "job")
+      const sheets2 = jobs2.find((j: { service: string }) => j.service === "portfoliost-sheets-sync")
+      expect(sheets2.version).toBe("ghcr.io/marx2/portfoliost-sheets-sync:v9.9.9")
     } finally {
       globalThis.fetch = origFetch
       if (prevEnv === undefined) delete process.env.SHEETS_SYNC_IMAGE

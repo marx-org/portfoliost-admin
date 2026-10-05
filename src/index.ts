@@ -62,10 +62,21 @@ admin.get("/system/versions", async (c) => {
     ...(j.suspended ? { suspended: true } : {}),
   }))
 
-  // sheets-sync is an on-demand jobshot Job (no CronJob) — its image is pinned
-  // in the admin backend (code default / SHEETS_SYNC_IMAGE env), so append it
-  // from here rather than the cluster.
-  jobs.push({ service: SHEETS_SYNC_JOB_NAME, version: sheetsSyncImage(), impl: "job" })
+  // sheets-sync is an on-demand jobshot Job (no CronJob) — its image is pinned in
+  // the admin HelmRelease and supplied via SHEETS_SYNC_IMAGE. `sheetsSyncImage()`
+  // throws when it is absent rather than falling back to a stale tag, so catch it
+  // HERE: one unconfigured job must not 500 the entire versions page, which is the
+  // page an operator opens precisely when something is misconfigured. The error
+  // text is surfaced in the version field so the cause is visible in the UI.
+  try {
+    jobs.push({ service: SHEETS_SYNC_JOB_NAME, version: sheetsSyncImage(), impl: "job" })
+  } catch (err) {
+    jobs.push({
+      service: SHEETS_SYNC_JOB_NAME,
+      version: `not configured — ${err instanceof Error ? err.message : String(err)}`,
+      impl: "job",
+    })
+  }
 
   // Service pods are Deployments too — attach the full image ref so the SPA
   // can show "version + image" consistently with the job entries.
