@@ -46,13 +46,14 @@ afterEach(() => {
 })
 
 describe("CRONJOBS (§80.1)", () => {
-  it("lists the eleven portfoliost-owned CronJobs of the pfire namespace", async () => {
+  it("lists the twelve portfoliost-owned CronJobs of the pfire namespace", async () => {
     const { CRONJOBS } = await load()
     expect(CRONJOBS).toEqual([
       "portfoliost-instruments-tickersync",
       "portfoliost-instruments-fxsync",
       "portfoliost-instruments-corpbondsync",
       "portfoliost-instruments-fundcategorysync",
+      "portfoliost-instruments-splitsync",
       "portfoliost-wallets-snapshotsync",
       "openst-bond-import",
       "openst-bond-archive",

@@ -36,6 +36,7 @@ export const CRONJOBS = [
   "portfoliost-instruments-fxsync",
   "portfoliost-instruments-corpbondsync",
   "portfoliost-instruments-fundcategorysync",
+  "portfoliost-instruments-splitsync",
   "portfoliost-wallets-snapshotsync",
   "openst-bond-import",
   "openst-bond-archive",

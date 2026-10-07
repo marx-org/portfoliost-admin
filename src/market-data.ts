@@ -21,6 +21,7 @@ export function setMarketDataDb(db: DB | null) {
 interface SplitCandidate {
   symbol: string
   detectedAt: string
+  effectiveDate: string | null
   lastStooqDate: string | null
   lastStooqClose: string | null
   firstOverflowDate: string | null
@@ -28,7 +29,14 @@ interface SplitCandidate {
   ratio: string | null
   suggestedFactor: string | null
   suggestedRatio: string | null
+  provider: string | null
+  providerNumerator: string | null
+  providerDenominator: string | null
+  providerFactor: string | null
+  providerStatus: string
+  evidence: unknown
   status: string
+  appliedAt: string | null
 }
 
 interface OverflowSymbol {
@@ -50,7 +58,7 @@ type SplitAdjustmentResult =
   | { portfolioAdjustment: { updatedTransactions: number; affectedPortfolios: number } }
   | { portfolioAdjustmentFailed: true; error: string }
 
-async function applyWalletSplit(symbol: string, priceFactor: number, effectiveDate: string): Promise<SplitAdjustmentResult> {
+async function applyWalletSplit(symbol: string, quantityFactor: number, effectiveDate: string): Promise<SplitAdjustmentResult> {
   const walletsUrl = process.env.API_WALLETS_URL
   if (!walletsUrl) {
     console.error("[market-data] apply-split: API_WALLETS_URL not configured")
@@ -60,7 +68,7 @@ async function applyWalletSplit(symbol: string, priceFactor: number, effectiveDa
     const res = await fetch(`${walletsUrl}/internal/apply-split`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ symbol, factor: 1 / priceFactor, effectiveDate }),
+      body: JSON.stringify({ symbol, factor: quantityFactor, effectiveDate }),
       signal: AbortSignal.timeout(15000),
     })
     const text = await res.text()
@@ -86,9 +94,11 @@ export function registerMarketDataRoutes(admin: Hono) {
   admin.get("/market-data/split-candidates", async (c) => {
     if (!_db) return c.json([])
     try {
-      const rows = await _db.execute(sql`SELECT symbol, detected_at, last_stooq_date, last_stooq_close,
-                      first_overflow_date, first_overflow_close,
-                      ratio, suggested_factor, suggested_ratio, status
+      const rows = await _db.execute(sql`SELECT symbol, detected_at, effective_date, last_stooq_date, last_stooq_close,
+                       first_overflow_date, first_overflow_close,
+                       ratio, suggested_factor, suggested_ratio, provider,
+                       provider_numerator, provider_denominator, provider_factor,
+                       provider_status, evidence, status, applied_at
                FROM instruments.split_candidates
                ORDER BY
                  CASE status WHEN 'pending' THEN 0 ELSE 1 END,
@@ -96,16 +106,24 @@ export function registerMarketDataRoutes(admin: Hono) {
       const r = rowsOf<Record<string, unknown>>(rows)
       return c.json(
         r.map((x) => ({
-          symbol:             String(x.symbol ?? ""),
-          detectedAt:         String(x.detected_at ?? ""),
+           symbol:             String(x.symbol ?? ""),
+           detectedAt:         String(x.detected_at ?? ""),
+           effectiveDate:      (x.effective_date as string) ?? null,
           lastStooqDate:      (x.last_stooq_date as string) ?? null,
           lastStooqClose:     (x.last_stooq_close as string) ?? null,
           firstOverflowDate:  (x.first_overflow_date as string) ?? null,
           firstOverflowClose: (x.first_overflow_close as string) ?? null,
           ratio:              (x.ratio as string) ?? null,
           suggestedFactor:    (x.suggested_factor as string) ?? null,
-          suggestedRatio:     (x.suggested_ratio as string) ?? null,
-          status:             String(x.status ?? ""),
+           suggestedRatio:     (x.suggested_ratio as string) ?? null,
+           provider:           (x.provider as string) ?? null,
+           providerNumerator:  (x.provider_numerator as string) ?? null,
+           providerDenominator: (x.provider_denominator as string) ?? null,
+           providerFactor:     (x.provider_factor as string) ?? null,
+           providerStatus:     String(x.provider_status ?? "manual"),
+           evidence:           x.evidence ?? null,
+           status:             String(x.status ?? ""),
+           appliedAt:          (x.applied_at as string) ?? null,
         })),
       )
     } catch (err) {
@@ -119,28 +137,33 @@ export function registerMarketDataRoutes(admin: Hono) {
     if (!_db) return c.json({ error: "DB unavailable" }, 503)
     const symbol = c.req.param("symbol")
     let factor: number
+    let effectiveDate: string
     try {
-      const body = await c.req.json() as { factor: unknown }
+      const body = await c.req.json() as { factor: unknown; effectiveDate?: unknown }
       factor = Number(body.factor)
       if (!Number.isFinite(factor) || factor <= 0) throw new Error("bad factor")
+      effectiveDate = String(body.effectiveDate ?? "")
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveDate)) throw new Error("bad effective date")
     } catch {
       return c.json({ error: "factor must be a positive number" }, 400)
     }
     try {
       const db = _db
       // 1. Insert or replace split_adjustment
-      const today = new Date().toISOString().slice(0, 10)
+      const priceFactor = 1 / factor
       await db.execute(sql`INSERT INTO instruments.split_adjustments (symbol, detected_at, factor, split_ratio)
-              VALUES (${symbol}, ${today}, ${factor}, NULL)
-              ON CONFLICT (symbol, detected_at) DO UPDATE SET factor = excluded.factor`)
+               VALUES (${symbol}, ${effectiveDate}, ${priceFactor}, NULL)
+               ON CONFLICT (symbol, detected_at) DO UPDATE SET factor = excluded.factor`)
       // 2. Mark candidate as applied
-      await db.execute(sql`UPDATE instruments.split_candidates SET status = 'applied', reviewed_at = now()
-              WHERE symbol = ${symbol}`)
+      await db.execute(sql`UPDATE instruments.split_candidates
+               SET status = 'applied', reviewed_at = now(), applied_at = now()
+               WHERE symbol = ${symbol}
+                 AND (effective_date = ${effectiveDate} OR effective_date IS NULL)`)
       // 3. Restate portfolios in wallets (quantity factor = 1 / price factor).
       // Best-effort: a failed adjustment keeps splitApplied=true so the price
       // bars stay corrected and the call can be retried from the admin panel.
-      const adjustment = await applyWalletSplit(symbol, factor, today)
-      return c.json({ ok: true, splitApplied: true, symbol, factor, detectedAt: today, ...adjustment })
+      const adjustment = await applyWalletSplit(symbol, factor, effectiveDate)
+      return c.json({ ok: true, splitApplied: true, symbol, factor, effectiveDate, ...adjustment })
     } catch (err) {
       console.error("[market-data] apply", err)
       return c.json({ error: "Internal error" }, 500)
@@ -153,7 +176,7 @@ export function registerMarketDataRoutes(admin: Hono) {
     const symbol = c.req.param("symbol")
     try {
       await _db.execute(sql`UPDATE instruments.split_candidates SET status = 'dismissed', reviewed_at = now()
-              WHERE symbol = ${symbol} AND status = 'pending'`)
+               WHERE symbol = ${symbol} AND status = 'pending'`)
       return c.json({ ok: true, symbol })
     } catch (err) {
       console.error("[market-data] dismiss", err)
