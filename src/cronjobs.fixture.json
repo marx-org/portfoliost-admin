@@ -40,6 +40,12 @@
       "image": "ghcr.io/marx2/portfoliost-instruments:v1.0.91"
     },
     {
+      "name": "portfoliost-instruments-splitsync",
+      "schedule": "0 6 * * *",
+      "suspend": false,
+      "image": "ghcr.io/marx2/portfoliost-instruments:v1.0.115"
+    },
+    {
       "name": "portfoliost-instruments-fxsync",
       "schedule": "10 17 * * *",
       "suspend": false,

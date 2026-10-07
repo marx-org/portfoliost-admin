@@ -38,7 +38,7 @@ function fakeDb() {
 }
 
 describe("POST /api/admin/market-data/split-candidates/:symbol/apply (§23.7)", () => {
-  it("fires the wallets apply-split hook with the inverted quantity factor after the DB writes", async () => {
+  it("fires the wallets apply-split hook with the quantity factor after the DB writes", async () => {
     const { executed, db } = fakeDb()
     setMarketDataDb(db)
     process.env.API_WALLETS_URL = "http://wallets:3000"
@@ -57,7 +57,7 @@ describe("POST /api/admin/market-data/split-candidates/:symbol/apply (§23.7)", 
       const res = await app.request("/api/admin/market-data/split-candidates/AAPL/apply", {
         method: "POST",
         headers: { ...adminHeaders, "content-type": "application/json" },
-        body: JSON.stringify({ factor: 0.5 }),
+         body: JSON.stringify({ factor: 2, effectiveDate: today }),
       })
       expect(res.status).toBe(200)
       const body = await res.json()
@@ -65,8 +65,8 @@ describe("POST /api/admin/market-data/split-candidates/:symbol/apply (§23.7)", 
         ok: true,
         splitApplied: true,
         symbol: "AAPL",
-        factor: 0.5,
-        detectedAt: today,
+         factor: 2,
+         effectiveDate: today,
         portfolioAdjustment: { updatedTransactions: 3, affectedPortfolios: 2 },
       })
 
@@ -76,7 +76,7 @@ describe("POST /api/admin/market-data/split-candidates/:symbol/apply (§23.7)", 
 
       expect(calls).toHaveLength(1)
       expect(calls[0].url).toBe("http://wallets:3000/internal/apply-split")
-      expect(calls[0].body).toEqual({ symbol: "AAPL", factor: 2, effectiveDate: today })
+       expect(calls[0].body).toEqual({ symbol: "AAPL", factor: 2, effectiveDate: today })
     } finally {
       globalThis.fetch = origFetch
       delete process.env.API_WALLETS_URL
@@ -97,7 +97,7 @@ describe("POST /api/admin/market-data/split-candidates/:symbol/apply (§23.7)", 
       const res = await app.request("/api/admin/market-data/split-candidates/MSFT/apply", {
         method: "POST",
         headers: { ...adminHeaders, "content-type": "application/json" },
-        body: JSON.stringify({ factor: 0.25 }),
+         body: JSON.stringify({ factor: 4, effectiveDate: today }),
       })
       expect(res.status).toBe(200)
       const body = await res.json()
@@ -123,7 +123,7 @@ describe("POST /api/admin/market-data/split-candidates/:symbol/apply (§23.7)", 
       const res = await app.request("/api/admin/market-data/split-candidates/IBM/apply", {
         method: "POST",
         headers: { ...adminHeaders, "content-type": "application/json" },
-        body: JSON.stringify({ factor: 2 }),
+         body: JSON.stringify({ factor: 0.5, effectiveDate: today }),
       })
       expect(res.status).toBe(200)
       const body = await res.json()
