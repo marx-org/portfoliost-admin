@@ -76,7 +76,7 @@ describe("POST /api/admin/market-data/split-candidates/:symbol/apply (§23.7)", 
 
       expect(calls).toHaveLength(1)
       expect(calls[0].url).toBe("http://wallets:3000/internal/apply-split")
-       expect(calls[0].body).toEqual({ symbol: "AAPL", factor: 2, effectiveDate: today })
+       expect(calls[0].body).toEqual({ symbol: "AAPL", factor: 2, effectiveDate: today, source: "admin" })
     } finally {
       globalThis.fetch = origFetch
       delete process.env.API_WALLETS_URL
