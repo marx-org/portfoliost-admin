@@ -3981,6 +3981,8 @@ export interface components {
             factor: number;
             /** Format: date */
             effectiveDate: string;
+            /** @description Event provenance, for example openst:fmp or admin */
+            source?: string;
         };
         ApplySplitResponse: {
             updatedTransactions: number;

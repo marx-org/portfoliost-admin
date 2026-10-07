@@ -68,7 +68,7 @@ async function applyWalletSplit(symbol: string, quantityFactor: number, effectiv
     const res = await fetch(`${walletsUrl}/internal/apply-split`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ symbol, factor: quantityFactor, effectiveDate }),
+      body: JSON.stringify({ symbol, factor: quantityFactor, effectiveDate, source: "admin" }),
       signal: AbortSignal.timeout(15000),
     })
     const text = await res.text()
