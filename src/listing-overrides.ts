@@ -96,12 +96,12 @@ export function registerListingOverrideRoutes(admin: Hono) {
           EXISTS (SELECT 1 FROM instruments.ticker_reference u WHERE u.listing_key = o.listing_key) AS upstream_present,
           (SELECT COUNT(*) FROM instruments.ticker_reference u WHERE u.ticker = o.ticker) > 1 AS ticker_conflict
           FROM instruments.curated_listing_overrides o
-          WHERE (ticker ILIKE ${searchLike} OR exchange ILIKE ${searchLike} OR listing_key ILIKE ${searchLike})
+          WHERE (ticker ILIKE ${searchLike} OR exchange ILIKE ${searchLike} OR listing_key ILIKE ${searchLike} OR asset_type ILIKE ${searchLike})
           ${statusClause}
           ORDER BY exchange, ticker
           LIMIT ${perPage} OFFSET ${(page - 1) * perPage}`),
         _db.execute(sql`SELECT COUNT(*)::int AS total FROM instruments.curated_listing_overrides
-          WHERE (ticker ILIKE ${searchLike} OR exchange ILIKE ${searchLike} OR listing_key ILIKE ${searchLike})
+          WHERE (ticker ILIKE ${searchLike} OR exchange ILIKE ${searchLike} OR listing_key ILIKE ${searchLike} OR asset_type ILIKE ${searchLike})
           ${statusClause}`),
       ])
       const total = Number(rowsOf<{ total: number }>(countResult)[0]?.total ?? 0)
