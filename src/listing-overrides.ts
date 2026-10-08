@@ -1,31 +1,22 @@
 import { Context, Hono } from "hono"
 import { sql } from "drizzle-orm"
 import type { DB } from "./db/index.js"
+import type { components } from "./generated/api-types.js"
 
 let _db: DB | null = null
 
 export type ListingOverrideStatus = "active" | "disabled"
 
-export interface ListingOverrideInput {
-  ticker: string
-  exchange: string
-  quoteCurrency: string
-  assetType: string
-  status?: ListingOverrideStatus
-  rationale: string
-  provenance: string
-}
+// Contract-typed (#97): the response shapes are the generated components, so a
+// drift between this writer and the SPA's reader fails the build rather than
+// surfacing as a missing field in production.
+type ListingOverrideInput = components["schemas"]["AdminListingOverrideInput"]
+type ListingOverrideRow = components["schemas"]["AdminListingOverride"]
+type ListingOverridePreview = components["schemas"]["AdminListingOverridePreview"]
 
-interface ListingOverrideRow extends ListingOverrideInput {
-  listingKey: string
-  status: ListingOverrideStatus
-  sourceVersion: string
-  createdAt: string
-  updatedAt: string
-  upstreamPresent: boolean
-  tickerConflict: boolean
-  precedence: "curated"
-}
+// After validation `status` is always present, so the writer never has to feed
+// a possibly-undefined enum into SQL.
+type ResolvedInput = Omit<ListingOverrideInput, "status"> & { status: ListingOverrideStatus }
 
 export function setListingOverridesDb(db: DB | null) {
   _db = db
@@ -56,7 +47,7 @@ function toOverride(row: Record<string, unknown>): ListingOverrideRow {
   }
 }
 
-function parseInput(body: unknown): { value: ListingOverrideInput; error?: never } | { value?: never; error: string } {
+function parseInput(body: unknown): { value: ResolvedInput; error?: never } | { value?: never; error: string } {
   const input = body as Partial<ListingOverrideInput> | null
   const ticker = String(input?.ticker ?? "").trim().toUpperCase()
   const exchange = String(input?.exchange ?? "").trim().toUpperCase()
@@ -144,6 +135,52 @@ export function registerListingOverrideRoutes(admin: Hono) {
     } catch (error) {
       if (String(error).includes("duplicate key")) return c.json({ error: "Conflict", message: "Override already exists" }, 409)
       console.error("[listing-overrides] create", error)
+      return c.json({ error: "Internal error" }, 500)
+    }
+  })
+
+  // #97 — resolve the upstream/conflict picture for a prospective key BEFORE it
+  // is saved, so the admin form can show what an override would take precedence
+  // over. Read-only; matches the same precedence model as the list endpoint.
+  admin.get("/listing-overrides/preview", async (c) => {
+    if (!_db) return c.json({ error: "DB unavailable" }, 503)
+    const ticker = (c.req.query("ticker") ?? "").trim().toUpperCase()
+    const exchange = (c.req.query("exchange") ?? "").trim().toUpperCase()
+    if (!ticker || !exchange) {
+      return c.json({ error: "ValidationError", message: "ticker and exchange are required" }, 422)
+    }
+    const listingKey = `${exchange}::${ticker}`
+    try {
+      const upstream = rowsOf<Record<string, unknown>>(
+        await _db.execute(sql`SELECT
+          (SELECT quote_currency FROM instruments.ticker_reference
+             WHERE listing_key = ${listingKey} LIMIT 1) AS upstream_currency,
+          EXISTS (SELECT 1 FROM instruments.ticker_reference
+             WHERE listing_key = ${listingKey}) AS upstream_present,
+          (SELECT COUNT(*) FROM instruments.ticker_reference
+             WHERE ticker = ${ticker}) > 1 AS ticker_conflict`),
+      )[0] ?? {}
+      const existingRows = rowsOf<Record<string, unknown>>(
+        await _db.execute(sql`SELECT listing_key, ticker, exchange, quote_currency, asset_type,
+            status, rationale, provenance, source_version, created_at, updated_at,
+            EXISTS (SELECT 1 FROM instruments.ticker_reference u WHERE u.listing_key = o.listing_key) AS upstream_present,
+            (SELECT COUNT(*) FROM instruments.ticker_reference u WHERE u.ticker = o.ticker) > 1 AS ticker_conflict
+          FROM instruments.curated_listing_overrides o
+          WHERE o.listing_key = ${listingKey}`),
+      )
+      const preview: ListingOverridePreview = {
+        listingKey,
+        ticker,
+        exchange,
+        upstreamPresent: upstream.upstream_present === true || upstream.upstream_present === "t" || upstream.upstream_present === 1,
+        tickerConflict: upstream.ticker_conflict === true || upstream.ticker_conflict === "t" || upstream.ticker_conflict === 1,
+        upstreamCurrency: upstream.upstream_currency == null ? null : String(upstream.upstream_currency),
+        existingOverride: existingRows[0] ? toOverride(existingRows[0]) : null,
+        precedence: "curated",
+      }
+      return c.json(preview)
+    } catch (error) {
+      console.error("[listing-overrides] preview", error)
       return c.json({ error: "Internal error" }, 500)
     }
   })
