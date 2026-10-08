@@ -108,6 +108,14 @@ describe("listing override admin routes", () => {
     expect(history.status).toBe(200)
     expect((await history.json()).items[0]).toMatchObject({ action: "created", actor: "admin-1 <admin@example.com>" })
     expect(queries.filter((query) => query.includes("curated_listing_override_history")).length).toBeGreaterThan(1)
+    // Regression: the write RETURNING subqueries must correlate to the target
+    // row by table name. An unqualified `listing_key`/`ticker` binds to the
+    // inner ticker_reference table and turns the EXIST/COUNT into a tautology
+    // (always true), so the returned conflict metadata was wrong in prod.
+    expect(queries.some((q) => /u\.listing_key = instruments\.curated_listing_overrides\.listing_key/.test(q))).toBe(true)
+    expect(queries.some((q) => /u\.ticker = instruments\.curated_listing_overrides\.ticker/.test(q))).toBe(true)
+    expect(queries.some((q) => /u\.listing_key = listing_key\b/.test(q))).toBe(false)
+    expect(queries.some((q) => /u\.ticker = ticker\b/.test(q))).toBe(false)
   })
 
   it("previews upstream presence, conflict and precedence before saving", async () => {
