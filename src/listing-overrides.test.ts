@@ -56,6 +56,16 @@ describe("listing override admin routes", () => {
     expect(response.status).toBe(401)
   })
 
+  it("searches by ticker, venue, listing key and asset type", async () => {
+    const { db, queries } = fakeDb()
+    setListingOverridesDb(db)
+    const response = await app.request("/api/admin/listing-overrides?search=Stock&status=active", { headers: adminHeaders })
+    expect(response.status).toBe(200)
+    const listQuery = queries.find((q) => q.includes("ORDER BY exchange, ticker"))
+    expect(listQuery).toBeDefined()
+    expect(listQuery).toMatch(/asset_type ILIKE/)
+  })
+
   it("rejects invalid override input", async () => {
     setListingOverridesDb(fakeDb().db)
     const response = await app.request("/api/admin/listing-overrides", {
