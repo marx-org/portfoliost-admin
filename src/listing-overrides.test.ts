@@ -38,7 +38,7 @@ function fakeDb() {
         const text = sqlText(query)
         queries.push(text)
         if (text.includes("SELECT COUNT(*)::int AS total")) return [{ total: 1 }]
-        if (text.includes("AS upstream_currency")) return [{ upstream_currency: "USD", upstream_present: true, ticker_conflict: false }]
+        if (text.includes("AS ticker_conflict") && !text.includes("curated_listing_overrides")) return [{ upstream_present: true, ticker_conflict: false }]
         if (text.includes("curated_listing_override_history") && text.includes("SELECT")) return [{ id: 1, listing_key: "NYSE::MFC", action: "created", snapshot: row, actor: "admin-1 <admin@example.com>", created_at: row.created_at }]
         if (text.includes("curated_listing_override_history")) return []
         if (text.includes("SET status = 'disabled'")) return [{ ...row, status: "disabled" }]
@@ -110,8 +110,9 @@ describe("listing override admin routes", () => {
     expect(queries.filter((query) => query.includes("curated_listing_override_history")).length).toBeGreaterThan(1)
   })
 
-  it("previews upstream currency, conflict and precedence before saving", async () => {
-    setListingOverridesDb(fakeDb().db)
+  it("previews upstream presence, conflict and precedence before saving", async () => {
+    const fake = fakeDb()
+    setListingOverridesDb(fake.db)
     const preview = await app.request("/api/admin/listing-overrides/preview?ticker=mfc&exchange=nyse", { headers: adminHeaders })
     expect(preview.status).toBe(200)
     expect(await preview.json()).toMatchObject({
@@ -120,9 +121,14 @@ describe("listing override admin routes", () => {
       exchange: "NYSE",
       upstreamPresent: true,
       tickerConflict: false,
-      upstreamCurrency: "USD",
+      upstreamCurrency: null,
       precedence: "curated",
     })
+    // Regression (#97): the upstream reference has no quote_currency column — it
+    // is derived by the instruments resolver, not stored. Selecting it 500s live.
+    const upstreamQuery = fake.queries.find((q) => q.includes("instruments.ticker_reference") && !q.includes("curated_listing_overrides"))
+    expect(upstreamQuery).toBeDefined()
+    expect(upstreamQuery).not.toMatch(/quote_currency\s+FROM\s+instruments\.ticker_reference/i)
   })
 
   it("rejects a preview without ticker or exchange", async () => {
