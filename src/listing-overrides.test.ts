@@ -38,6 +38,7 @@ function fakeDb() {
         const text = sqlText(query)
         queries.push(text)
         if (text.includes("SELECT COUNT(*)::int AS total")) return [{ total: 1 }]
+        if (text.includes("AS upstream_currency")) return [{ upstream_currency: "USD", upstream_present: true, ticker_conflict: false }]
         if (text.includes("curated_listing_override_history") && text.includes("SELECT")) return [{ id: 1, listing_key: "NYSE::MFC", action: "created", snapshot: row, actor: "admin-1 <admin@example.com>", created_at: row.created_at }]
         if (text.includes("curated_listing_override_history")) return []
         if (text.includes("SET status = 'disabled'")) return [{ ...row, status: "disabled" }]
@@ -107,5 +108,26 @@ describe("listing override admin routes", () => {
     expect(history.status).toBe(200)
     expect((await history.json()).items[0]).toMatchObject({ action: "created", actor: "admin-1 <admin@example.com>" })
     expect(queries.filter((query) => query.includes("curated_listing_override_history")).length).toBeGreaterThan(1)
+  })
+
+  it("previews upstream currency, conflict and precedence before saving", async () => {
+    setListingOverridesDb(fakeDb().db)
+    const preview = await app.request("/api/admin/listing-overrides/preview?ticker=mfc&exchange=nyse", { headers: adminHeaders })
+    expect(preview.status).toBe(200)
+    expect(await preview.json()).toMatchObject({
+      listingKey: "NYSE::MFC",
+      ticker: "MFC",
+      exchange: "NYSE",
+      upstreamPresent: true,
+      tickerConflict: false,
+      upstreamCurrency: "USD",
+      precedence: "curated",
+    })
+  })
+
+  it("rejects a preview without ticker or exchange", async () => {
+    setListingOverridesDb(fakeDb().db)
+    const response = await app.request("/api/admin/listing-overrides/preview?ticker=MFC", { headers: adminHeaders })
+    expect(response.status).toBe(422)
   })
 })
