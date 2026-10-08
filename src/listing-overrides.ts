@@ -153,8 +153,6 @@ export function registerListingOverrideRoutes(admin: Hono) {
     try {
       const upstream = rowsOf<Record<string, unknown>>(
         await _db.execute(sql`SELECT
-          (SELECT quote_currency FROM instruments.ticker_reference
-             WHERE listing_key = ${listingKey} LIMIT 1) AS upstream_currency,
           EXISTS (SELECT 1 FROM instruments.ticker_reference
              WHERE listing_key = ${listingKey}) AS upstream_present,
           (SELECT COUNT(*) FROM instruments.ticker_reference
@@ -174,7 +172,11 @@ export function registerListingOverrideRoutes(admin: Hono) {
         exchange,
         upstreamPresent: upstream.upstream_present === true || upstream.upstream_present === "t" || upstream.upstream_present === 1,
         tickerConflict: upstream.ticker_conflict === true || upstream.ticker_conflict === "t" || upstream.ticker_conflict === 1,
-        upstreamCurrency: upstream.upstream_currency == null ? null : String(upstream.upstream_currency),
+        // The upstream reference stores no currency column: a listing's trading
+        // currency is derived from its country/venue by the instruments resolver,
+        // which this module does not duplicate. Presence and conflict are what a
+        // reviewer needs pre-save; the currency is only known post-resolution.
+        upstreamCurrency: null,
         existingOverride: existingRows[0] ? toOverride(existingRows[0]) : null,
         precedence: "curated",
       }
