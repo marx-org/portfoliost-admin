@@ -125,8 +125,8 @@ export function registerListingOverrideRoutes(admin: Hono) {
           ${input.status}, ${input.rationale}, ${input.provenance}, 'admin')
         RETURNING listing_key, ticker, exchange, quote_currency, asset_type, status, rationale, provenance,
           source_version, created_at, updated_at,
-          EXISTS (SELECT 1 FROM instruments.ticker_reference u WHERE u.listing_key = listing_key) AS upstream_present,
-          (SELECT COUNT(*) FROM instruments.ticker_reference u WHERE u.ticker = ticker) > 1 AS ticker_conflict`)
+          EXISTS (SELECT 1 FROM instruments.ticker_reference u WHERE u.listing_key = instruments.curated_listing_overrides.listing_key) AS upstream_present,
+          (SELECT COUNT(*) FROM instruments.ticker_reference u WHERE u.ticker = instruments.curated_listing_overrides.ticker) > 1 AS ticker_conflict`)
       const row = rowsOf<Record<string, unknown>>(result)[0]
       if (!row) return c.json({ error: "Internal error" }, 500)
       const output = toOverride(row)
@@ -202,8 +202,8 @@ export function registerListingOverrideRoutes(admin: Hono) {
         WHERE listing_key = ${listingKey}
         RETURNING listing_key, ticker, exchange, quote_currency, asset_type, status, rationale, provenance,
           source_version, created_at, updated_at,
-          EXISTS (SELECT 1 FROM instruments.ticker_reference u WHERE u.listing_key = listing_key) AS upstream_present,
-          (SELECT COUNT(*) FROM instruments.ticker_reference u WHERE u.ticker = ticker) > 1 AS ticker_conflict`)
+          EXISTS (SELECT 1 FROM instruments.ticker_reference u WHERE u.listing_key = instruments.curated_listing_overrides.listing_key) AS upstream_present,
+          (SELECT COUNT(*) FROM instruments.ticker_reference u WHERE u.ticker = instruments.curated_listing_overrides.ticker) > 1 AS ticker_conflict`)
       const row = rowsOf<Record<string, unknown>>(result)[0]
       if (!row) return c.json({ error: "NotFound", message: "Override not found" }, 404)
       const output = toOverride(row)
@@ -223,8 +223,8 @@ export function registerListingOverrideRoutes(admin: Hono) {
         SET status = 'disabled', updated_at = now() WHERE listing_key = ${listingKey}
         RETURNING listing_key, ticker, exchange, quote_currency, asset_type, status, rationale, provenance,
           source_version, created_at, updated_at,
-          EXISTS (SELECT 1 FROM instruments.ticker_reference u WHERE u.listing_key = listing_key) AS upstream_present,
-          (SELECT COUNT(*) FROM instruments.ticker_reference u WHERE u.ticker = ticker) > 1 AS ticker_conflict`)
+          EXISTS (SELECT 1 FROM instruments.ticker_reference u WHERE u.listing_key = instruments.curated_listing_overrides.listing_key) AS upstream_present,
+          (SELECT COUNT(*) FROM instruments.ticker_reference u WHERE u.ticker = instruments.curated_listing_overrides.ticker) > 1 AS ticker_conflict`)
       const row = rowsOf<Record<string, unknown>>(result)[0]
       if (!row) return c.json({ error: "NotFound", message: "Override not found" }, 404)
       const output = toOverride(row)
