@@ -9,6 +9,7 @@ import { registerFxBackfillRoutes } from "./fx-backfill.js"
 import { registerMarketDataRoutes, setMarketDataDb } from "./market-data.js"
 import { registerBondCatalogueRoutes, setBondCatalogueDb } from "./bond-catalogue.js"
 import { registerTopologyRoutes } from "./topology.js"
+import { registerListingOverrideRoutes, setListingOverridesDb } from "./listing-overrides.js"
 import { probeServiceMetas } from "./service-probe.js"
 import { listJobVersions, listServiceImages } from "./jobs-version.js"
 import { metricsRouteHandler } from "./instrumentation.js"
@@ -238,6 +239,7 @@ registerFxBackfillRoutes(admin)
 registerMarketDataRoutes(admin)
 registerBondCatalogueRoutes(admin)
 registerTopologyRoutes(admin)
+registerListingOverrideRoutes(admin)
 
 app.route("/api/admin", admin)
 

@@ -5,6 +5,7 @@ import { getDb } from "./db/index.js"
 import { startJobPoller } from "./jobs.js"
 import { setMarketDataDb } from "./market-data.js"
 import { setBondCatalogueDb } from "./bond-catalogue.js"
+import { setListingOverridesDb } from "./listing-overrides.js"
 
 const port = parseInt(process.env.PORT ?? "3000", 10)
 
@@ -14,4 +15,5 @@ serve({ fetch: app.fetch, port }, () => {
   startJobPoller(db)
   setMarketDataDb(db)
   setBondCatalogueDb(db)
+  setListingOverridesDb(db)
 })
