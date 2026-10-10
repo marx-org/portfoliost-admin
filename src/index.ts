@@ -5,7 +5,7 @@ import { moduleMeta } from "./meta.js"
 import { registerJobsRoutes } from "./jobs.js"
 import { registerSheetsSyncRoutes, SHEETS_SYNC_JOB_NAME, sheetsSyncImage } from "./sheets-sync.js"
 import { registerPriceAuditRoutes } from "./price-audit.js"
-import { registerCashAuditRoutes } from "./cash-audit.js"
+import { CASH_AUDIT_JOB_NAME, registerCashAuditRoutes } from "./cash-audit.js"
 import { registerFxBackfillRoutes } from "./fx-backfill.js"
 import { registerMarketDataRoutes, setMarketDataDb } from "./market-data.js"
 import { registerBondCatalogueRoutes, setBondCatalogueDb } from "./bond-catalogue.js"
@@ -72,9 +72,15 @@ admin.get("/system/versions", async (c) => {
   // text is surfaced in the version field so the cause is visible in the UI.
   try {
     jobs.push({ service: SHEETS_SYNC_JOB_NAME, version: sheetsSyncImage(), impl: "job" })
+    jobs.push({ service: CASH_AUDIT_JOB_NAME, version: sheetsSyncImage(), impl: "job" })
   } catch (err) {
     jobs.push({
       service: SHEETS_SYNC_JOB_NAME,
+      version: `not configured — ${err instanceof Error ? err.message : String(err)}`,
+      impl: "job",
+    })
+    jobs.push({
+      service: CASH_AUDIT_JOB_NAME,
       version: `not configured — ${err instanceof Error ? err.message : String(err)}`,
       impl: "job",
     })

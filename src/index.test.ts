@@ -306,6 +306,7 @@ describe("Admin API authorization (D50)", () => {
         "portfoliost-instruments-fxsync",
         "jobshot",
         "portfoliost-sheets-sync",
+        "portfoliost-cash-audit",
       ])
       // The SPA renders a CronJob as "Job · Scheduled" from this (§80.1), so
       // the field has to survive the endpoint; jobshot is a Deployment and
