@@ -150,7 +150,7 @@ describe("Price audit job API (§72)", () => {
 
   it("defaults the image to a pinned wallets release, never :latest", () => {
     // An unpinned image would let a wallets release change the audit under us.
-    expect(walletsImage()).toMatch(/^ghcr\.io\/marx2\/portfoliost-wallets:v\d+\.\d+\.\d+$/)
+    expect(walletsImage()).toMatch(/^ghcr\.io\/marx-org\/portfoliost-wallets:v\d+\.\d+\.\d+$/)
   })
 })
 
