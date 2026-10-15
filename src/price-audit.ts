@@ -34,7 +34,7 @@ const KIND = "price_audit"
 
 /** Pinned wallets release; must move in step with the wallets HelmRelease. */
 export function walletsImage(): string {
-  return process.env.WALLETS_IMAGE ?? "ghcr.io/marx2/portfoliost-wallets:v1.1.82"
+  return process.env.WALLETS_IMAGE ?? "ghcr.io/marx-org/portfoliost-wallets:v1.1.82"
 }
 
 export function buildPriceAuditSpec(

@@ -61,7 +61,7 @@
       "name": "portfoliost-wallets-snapshotsync",
       "schedule": "0 13 * * *",
       "suspend": false,
-      "image": "ghcr.io/marx2/portfoliost-wallets:v1.1.118"
+      "image": "ghcr.io/marx-org/portfoliost-wallets:v1.1.118"
     },
     {
       "name": "stooq-downloader",
