@@ -11,12 +11,12 @@
     "check:cronjobs": "node scripts/check-cronjobs.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "gen:types": "openapi-typescript node_modules/@marx2/contracts/openapi.yaml -o src/generated/api-types.d.ts"
+    "gen:types": "openapi-typescript node_modules/@marx-org/contracts/openapi.yaml -o src/generated/api-types.d.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
     "@kubernetes/client-node": "^2.0.0",
-    "@marx2/otel": "^1.0.2",
+    "@marx-org/otel": "^1.0.3",
     "@opentelemetry/auto-instrumentations-node": "^0.80.0",
     "@opentelemetry/exporter-prometheus": "^0.222.0",
     "@opentelemetry/instrumentation-runtime-node": "^0.35.0",
@@ -32,7 +32,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.3.14",
-    "@marx2/contracts": "^1.6.69",
+    "@marx-org/contracts": "^1.6.77",
     "@opentelemetry/api": "^1.9.1",
     "@types/node": "^22.0.0",
     "drizzle-kit": "^0.31.10",

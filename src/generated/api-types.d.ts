@@ -2928,7 +2928,7 @@ export interface components {
             sumOfCurrentPositions: number;
             sumOfCurrentPositionsValue: number;
         };
-        /** @description Instrument research dividend history (`history`) OR the portfolio's own dividend rows (`totalDividends`/`count`/`items`) — see the exposing endpoint. For portfolio items, gross = quantity × price, taxes is the withholding tax, amount is the NET (gross − taxes) per the example-service convention, and convertedAmount is amount in the display currency. The research `/dividends` endpoint always also sets `currency` + `currencySource` (plan §49.6, currency is never null); the portfolio endpoint does not. */
+        /** @description Instrument research dividend history (`history`) OR the portfolio's own dividend rows (`totalDividends`/`count`/`items`) — see the exposing endpoint. For portfolio items, gross = quantity × price, taxes is the withholding tax, amount is the NET (gross − taxes), and convertedAmount is amount in the display currency. The research `/dividends` endpoint always also sets `currency` + `currencySource` (plan §49.6, currency is never null); the portfolio endpoint does not. */
         DividendsData: {
             history?: {
                 date: string;
@@ -3196,16 +3196,19 @@ export interface components {
             userId: string;
             name: string;
             description?: string | null;
-            strategy: string;
-            type: string;
             baseCurrency?: string;
             capitalBasis: number;
             currentValue: number;
             isPublic: boolean;
+            /** @description Read-only view over the instruments carrying `labelId`. Always false on a casual portfolio. */
+            isVirtual?: boolean;
+            /**
+             * Format: uuid
+             * @description The label whose instruments a virtual portfolio mirrors. Always set when `isVirtual` is true; null on a casual portfolio.
+             */
+            labelId?: string | null;
             cashLegOnTrade?: boolean;
             isMarginEnabled: boolean;
-            marginRate?: number | null;
-            maintenanceMarginRate?: number | null;
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
@@ -3218,12 +3221,27 @@ export interface components {
             /** @description Portfolio-native cash position (plan §62) */
             cash?: components["schemas"]["PortfolioCash"];
         };
+        /**
+         * @description Body for both POST /portfolios and PATCH /portfolios/{id}.
+         *     Virtual portfolios (`isVirtual: true`) are read-only views over the instruments carrying `labelId` — they have no cash ledger. A virtual request therefore REQUIRES `labelId` (an existing label owned by the caller); a casual portfolio (the default — `isVirtual` false or absent) MUST NOT carry one. A virtual create without a label is rejected 422.
+         *     Update semantics: a virtual portfolio's `cashLegOnTrade` is always false, so PATCH rejects enabling the cash leg on a virtual portfolio (422). PATCH also rejects an update that would leave the virtual/casual state invalid — a `labelId` on a casual portfolio, or clearing a virtual portfolio's `labelId` (both 422).
+         *     OpenAPI 3.0 cannot express a conditional requirement like this without changing the shape every consumer compiles against, so the rule is declared here and enforced server-side by the wallets zod refinement and route guards. `scripts_check_spec.py` asserts these fields stay declared.
+         */
         CreatePortfolioRequest: {
             name: string;
             description?: string | null;
-            strategy?: string;
             currency?: string;
             isPublic?: boolean;
+            /**
+             * @description True for a virtual portfolio; see the schema description for the label requirement.
+             * @default false
+             */
+            isVirtual: boolean;
+            /**
+             * Format: uuid
+             * @description Required when `isVirtual` is true, forbidden otherwise. Null on a casual portfolio.
+             */
+            labelId?: string | null;
             cashLegOnTrade?: boolean;
         };
         /**
@@ -3719,7 +3737,7 @@ export interface components {
                 issues?: Record<string, never>[];
             };
         };
-        /** @description A portfolio transaction row. For `type: DIVIDEND` the example-service convention applies (verified against the live API 2026-09-26): `price` is the per-share gross dividend, `quantity × price` is the gross total, `taxes` is the withholding tax, and `totalAmount` is the **net** (gross − taxes). BUY/SELL rows keep `totalAmount = quantity × price + fees`. `TRANSFER_OUT`/`TRANSFER_IN` rows are an in-kind movement of the instrument between portfolios: `price` is the source lot's cost carried over unchanged, `totalAmount` is informational, `realizedGainLoss` is absent because nothing was disposed of, and the row has **no cash effect and is not an external flow**. It must not be read as a trade. */
+        /** @description A portfolio transaction row. For `type: DIVIDEND`, `price` is the per-share gross dividend, `quantity × price` is the gross total, `taxes` is the withholding tax, and `totalAmount` is the **net** (gross − taxes). BUY/SELL rows keep `totalAmount = quantity × price + fees`. `TRANSFER_OUT`/`TRANSFER_IN` rows are an in-kind movement of the instrument between portfolios: `price` is the source lot's cost carried over unchanged, `totalAmount` is informational, `realizedGainLoss` is absent because nothing was disposed of, and the row has **no cash effect and is not an external flow**. It must not be read as a trade. */
         Transaction: components["schemas"]["FeeFxFields"] & {
             /** Format: uuid */
             id: string;
@@ -3741,19 +3759,20 @@ export interface components {
             priceCurrency: string;
             instrumentCurrency: string;
             assetType: string;
-            isGift: boolean;
-            synthesizedOpeningLot: boolean;
             /** Format: date-time */
             executedAt: string;
             /** Format: date-time */
             createdAt: string;
+            /** @description Currency used to display and total the row; the owning portfolio's base currency */
             displayCurrency: string;
             convertedTotalAmount: number;
             convertedPrice: number;
             convertedFees: number;
             convertedRealizedGainLoss?: number | null;
-            sector?: string;
-            country?: string;
+            /** @description Sector of the transaction's position (read from the position, not stored on the row) */
+            sector?: string | null;
+            /** @description Country of the position's instrument, read from the position */
+            country?: string | null;
             /** @description Import provenance tag; NULL for manually-created rows */
             externalSource?: string | null;
             /** @description Importer-supplied dedup key; unique per externalSource */
@@ -3808,7 +3827,6 @@ export interface components {
             currency?: string;
             description?: string;
             transactionDate?: string;
-            paymentMethod?: string;
         };
         TransferCashRequest: components["schemas"]["FeeFxFields"] & {
             amount: number;
@@ -3840,12 +3858,10 @@ export interface components {
             type: string;
             amount: number;
             currency: string;
-            status: string;
             /** Format: date-time */
             createdAt: string;
             description?: string | null;
             transactionDate?: string | null;
-            paymentMethod?: string | null;
             fees?: number | null;
             feesType?: string | null;
             /** Format: uuid */
@@ -3955,8 +3971,6 @@ export interface components {
             description?: string | null;
             /** Format: date */
             transactionDate?: string | null;
-            status?: string;
-            paymentMethod?: string | null;
             fees?: number | null;
             /** @enum {string|null} */
             feesType?: "fixed" | "pct" | null;
@@ -5856,6 +5870,8 @@ export interface operations {
                 labels?: string;
                 /** @description Filter by instrument symbol. Must be in canonical form: bare ticker for US listings (AAPL, SAP), Yahoo venue suffix for others (SAP.DE, SNT.WA). Case-insensitive exact match. */
                 instrumentSymbol?: string;
+                /** @description Case-insensitive partial match against instrument symbol or company name. */
+                search?: string;
             };
             header?: never;
             path?: never;
@@ -6187,6 +6203,8 @@ export interface operations {
                 labels?: string;
                 /** @description Filter by instrument symbol. Must be in canonical form: bare ticker for US listings (AAPL, SAP), Yahoo venue suffix for others (SAP.DE, SNT.WA). Case-insensitive exact match. */
                 instrumentSymbol?: string;
+                /** @description Case-insensitive partial match against instrument symbol or company name. */
+                search?: string;
             };
             header?: never;
             path: {
@@ -6612,6 +6630,8 @@ export interface operations {
                 limit?: number;
                 /** @description Comma-separated label ids; AND filter (entity must have all) */
                 labels?: string;
+                /** @description Case-insensitive partial match against the linked transaction's ticker or company name. */
+                search?: string;
             };
             header?: never;
             path: {
@@ -6719,6 +6739,8 @@ export interface operations {
                 sortOrder?: "asc" | "desc";
                 /** @description Comma-separated label ids; AND filter (entity must have all) */
                 labels?: string;
+                /** @description Case-insensitive partial match against the linked transaction's ticker or company name. */
+                search?: string;
             };
             header?: never;
             path?: never;
