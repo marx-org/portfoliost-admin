@@ -50,8 +50,8 @@ function buildSheetsSyncSpec(wipe: boolean, callerToken: string): JobshotRunPayl
     env: {
       WALLETS_API_TOKEN: callerToken,
       WALLETS_API_URL:   process.env.API_WALLETS_URL as string,
-      // All pfire services share one database — the admin's DATABASE_URL is
-      // the Job's read-only ticker_reference lookup (INSTRUMENTS_DATABASE_URL).
+      // Admin and wallets share the portfoliost database — it is the Job's
+      // read-only ticker_reference lookup (INSTRUMENTS_DATABASE_URL).
       INSTRUMENTS_DATABASE_URL: process.env.DATABASE_URL as string,
     },
     volumes:      [],
