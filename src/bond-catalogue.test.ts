@@ -72,6 +72,22 @@ describe("GET /api/admin/bond-catalogue/bond-series (D82)", () => {
     const res = await app.request("/api/admin/bond-catalogue/bond-series")
     expect(res.status).toBe(401)
   })
+
+  it("returns an error when the OpenST catalogue cannot be read", async () => {
+    setBondCatalogueDb({
+      execute: async () => {
+        throw new Error("relation openst.bond_series does not exist")
+      },
+    } as any)
+
+    const res = await app.request("/api/admin/bond-catalogue/bond-series", { headers: adminHeaders })
+    expect(res.status).toBe(503)
+    await expect(res.json()).resolves.toEqual({
+      error: "openst_unavailable",
+      message: "Unable to read the OpenST bond catalogue",
+    })
+    setBondCatalogueDb(db)
+  })
 })
 
 describe("GET /api/admin/bond-catalogue/cpi (D82)", () => {
@@ -88,6 +104,7 @@ describe("GET /api/admin/bond-catalogue/cpi (D82)", () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.rowCount).toBe(24)
+    expect(body.status).toBe("fresh")
     expect(body.rows).toHaveLength(24)
     // ascending: first row is the oldest of the returned window
     expect(body.rows[0].date < body.rows[23].date).toBe(true)
@@ -101,8 +118,37 @@ describe("GET /api/admin/bond-catalogue/cpi (D82)", () => {
     const res = await app.request("/api/admin/bond-catalogue/cpi", { headers: adminHeaders })
     const body = await res.json()
     expect(body.stale).toBe(true)
+    expect(body.status).toBe("stale")
     expect(body.ageDays).toBeGreaterThan(40)
     expect(body.lastDate).toBe("2020-01-01")
+  })
+
+  it("reports an empty CPI table without calling it stale", async () => {
+    await db.execute(sql.raw(`DELETE FROM openst.cpi_12m`))
+    const res = await app.request("/api/admin/bond-catalogue/cpi", { headers: adminHeaders })
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      rowCount: 0,
+      stale: false,
+      status: "empty",
+      ageDays: null,
+    })
+  })
+
+  it("distinguishes an OpenST read failure from stale CPI data", async () => {
+    setBondCatalogueDb({
+      execute: async () => {
+        throw new Error("relation openst.cpi_12m does not exist")
+      },
+    } as any)
+
+    const res = await app.request("/api/admin/bond-catalogue/cpi", { headers: adminHeaders })
+    expect(res.status).toBe(503)
+    await expect(res.json()).resolves.toEqual({
+      error: "openst_unavailable",
+      message: "Unable to read the OpenST CPI series",
+    })
+    setBondCatalogueDb(db)
   })
 
   it("requires auth", async () => {

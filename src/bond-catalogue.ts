@@ -1,7 +1,7 @@
 /**
  * D82 — Admin read-only surface for the openst savings-bond catalogue and the
  * 12m CPI series. Both tables live in the `openst` Postgres schema (not
- * instruments), so the admin reads them directly from the shared DB.
+ * instruments), so the admin reads them through its dedicated OpenST DB.
  *
  * GET /api/admin/bond-catalogue/bond-series — openst.bond_series rows + count
  * GET /api/admin/bond-catalogue/cpi         — openst.cpi_12m (last N rows) + staleness
@@ -36,6 +36,11 @@ export interface BondSeriesSummary {
   rows: BondSeriesRow[]
 }
 
+export interface BondCatalogueError {
+  error: "openst_unavailable"
+  message: string
+}
+
 /** CPI staleness threshold: older than this many days → warning. */
 const CPI_STALE_DAYS = 40
 
@@ -47,6 +52,7 @@ export interface CpiRow {
 export interface CpiSummary {
   rowCount: number
   stale: boolean
+  status: "fresh" | "stale" | "empty"
   lastDate: string | null
   ageDays: number | null
   rows: CpiRow[]
@@ -55,7 +61,12 @@ export interface CpiSummary {
 export function registerBondCatalogueRoutes(admin: Hono) {
   // GET /api/admin/bond-catalogue/bond-series
   admin.get("/bond-catalogue/bond-series", async (c) => {
-    if (!_db) return c.json({ count: 0, rows: [] } satisfies BondSeriesSummary)
+    if (!_db) {
+      return c.json({
+        error: "openst_unavailable",
+        message: "OpenST database is not configured",
+      } satisfies BondCatalogueError, 503)
+    }
     try {
       const countRes = await _db.execute(sql`SELECT COUNT(*)::int AS n FROM openst.bond_series`)
       const count = rowsOf<{ n: number }>(countRes)[0]?.n ?? 0
@@ -76,14 +87,20 @@ export function registerBondCatalogueRoutes(admin: Hono) {
       return c.json({ count, rows } satisfies BondSeriesSummary)
     } catch (err) {
       console.error("[bond-catalogue] bond-series", err)
-      return c.json({ count: 0, rows: [] } satisfies BondSeriesSummary)
+      return c.json({
+        error: "openst_unavailable",
+        message: "Unable to read the OpenST bond catalogue",
+      } satisfies BondCatalogueError, 503)
     }
   })
 
   // GET /api/admin/bond-catalogue/cpi
   admin.get("/bond-catalogue/cpi", async (c) => {
     if (!_db) {
-      return c.json({ rowCount: 0, stale: true, lastDate: null, ageDays: null, rows: [] } satisfies CpiSummary)
+      return c.json({
+        error: "openst_unavailable",
+        message: "OpenST database is not configured",
+      } satisfies BondCatalogueError, 503)
     }
     try {
       const rowsRes = await _db.execute(sql`
@@ -101,18 +118,23 @@ export function registerBondCatalogueRoutes(admin: Hono) {
           ageDays = Math.floor((Date.now() - last.getTime()) / 86_400_000)
         }
       }
-      const stale = ageDays === null || ageDays > CPI_STALE_DAYS
+      const stale = ageDays !== null && ageDays > CPI_STALE_DAYS
+      const status = ageDays === null ? "empty" : stale ? "stale" : "fresh"
 
       return c.json({
         rowCount: desc.length,
         stale,
+        status,
         lastDate,
         ageDays,
         rows,
       } satisfies CpiSummary)
     } catch (err) {
       console.error("[bond-catalogue] cpi", err)
-      return c.json({ rowCount: 0, stale: true, lastDate: null, ageDays: null, rows: [] } satisfies CpiSummary)
+      return c.json({
+        error: "openst_unavailable",
+        message: "Unable to read the OpenST CPI series",
+      } satisfies BondCatalogueError, 503)
     }
   })
 }
