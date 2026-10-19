@@ -15,18 +15,13 @@ describe("buildFxBackfillSpec (§72.24)", () => {
     expect(s.container).toMatch(/portfoliost-instruments/)
   })
 
-  // #172 — the sibling price-audit job falls back to a *pinned* org tag. This
-  // one fell back to `ghcr.io/marx2/portfoliost-instruments:latest`, which is
-  // wrong twice: the old namespace still resolves but is frozen at the transfer
-  // build, and `:latest` contradicts the comment above it about pinning a job
-  // that writes the FX table. Assert both properties so neither can regress.
-  it("falls back to a pinned org image, not :latest and not the old namespace", () => {
+  // The regex requires both the org path and an explicit semver tag, so it
+  // rules out `:latest` and any other registry in one assertion.
+  it("falls back to a pinned org image", () => {
     delete process.env.INSTRUMENTS_IMAGE
 
     const container = buildFxBackfillSpec().container
     expect(container).toMatch(/^ghcr\.io\/marx-org\/portfoliost-instruments:v\d+\.\d+\.\d+$/)
-    expect(container).not.toContain("marx2")
-    expect(container).not.toContain(":latest")
   })
 
   it("still honours an explicit INSTRUMENTS_IMAGE override", () => {
