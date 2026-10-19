@@ -41,11 +41,16 @@ const NAMESPACE = "pfire"
 const KIND = "fx_backfill"
 
 /** Pinned like the price-audit job: an unpinned tag would change the job's code
- *  under us, and this one writes to the FX table every other price depends on. */
+ *  under us, and this one writes to the FX table every other price depends on.
+ *  The fallback therefore names a pinned org tag — not `:latest`, and not the
+ *  pre-migration `ghcr.io/marx2/` namespace. That old package still resolves,
+ *  which is the danger: it is frozen at the transfer build, so a stale fallback
+ *  would silently run pre-migration instruments code against the live FX table.
+ *  Production overrides this with INSTRUMENTS_IMAGE. */
 function instrumentsImage(): string {
   return (
     process.env.INSTRUMENTS_IMAGE ??
-    "ghcr.io/marx2/portfoliost-instruments:latest"
+    "ghcr.io/marx-org/portfoliost-instruments:v1.0.130"
   )
 }
 
