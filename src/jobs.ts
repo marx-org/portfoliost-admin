@@ -1,13 +1,15 @@
 import { Hono } from "hono"
 import { randomUUID } from "crypto"
 import { existsSync, mkdirSync, unlinkSync, createWriteStream } from "fs"
-import { join } from "path"
+import { isAbsolute, relative, resolve } from "path"
+import { tmpdir } from "os"
 import { pipeline } from "stream/promises"
 import { IncomingMessage, ServerResponse } from "http"
 import busboy from "busboy"
 import { eq } from "drizzle-orm"
 import type { DB } from "./db/index.js"
 import { jobRun } from "./db/schema.js"
+import { internalServiceUrl } from "./internal-url.js"
 
 // ── Dataset catalogue ────────────────────────────────────────────────────────
 
@@ -43,8 +45,29 @@ function jobName(dataset: StooqDataset): string {
 
 // ── multer setup ─────────────────────────────────────────────────────────────
 
+const DEFAULT_UPLOAD_DIR = "/tmp/stooq-uploads"
+const UPLOAD_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 function getUploadDir(): string {
-  return process.env.STOOQ_UPLOAD_DIR ?? "/tmp/stooq-uploads"
+  const configured = process.env.STOOQ_UPLOAD_DIR
+  if (!configured) return DEFAULT_UPLOAD_DIR
+
+  // Production has one deliberate PVC mount. Tests and local development may
+  // use a temporary directory, but never an arbitrary configured filesystem
+  // path.
+  const candidate = resolve(configured)
+  if (candidate === DEFAULT_UPLOAD_DIR) return DEFAULT_UPLOAD_DIR
+  const tempRoot = resolve(tmpdir())
+  const withinTempRoot = relative(tempRoot, candidate)
+  if (
+    process.env.NODE_ENV !== "production" &&
+    withinTempRoot !== "" &&
+    !withinTempRoot.startsWith("..") &&
+    !isAbsolute(withinTempRoot)
+  ) {
+    return candidate
+  }
+  throw new Error(`STOOQ_UPLOAD_DIR must be ${DEFAULT_UPLOAD_DIR} or a temporary test directory`)
 }
 
 const MAX_FILE_SIZE = 1 * 1024 * 1024 * 1024 // 1 GB
@@ -52,13 +75,20 @@ const MAX_FILE_SIZE = 1 * 1024 * 1024 * 1024 // 1 GB
 // ── Upload file path helper ──────────────────────────────────────────────────
 
 function uploadPath(dataset: StooqDataset, uploadId: string): string {
-  return join(getUploadDir(), `${dataset}-${uploadId}.zip`)
+  if (!UPLOAD_ID_PATTERN.test(uploadId)) throw new Error("Invalid uploadId")
+  const root = getUploadDir()
+  const candidate = resolve(root, `${dataset}-${uploadId}.zip`)
+  const withinRoot = relative(root, candidate)
+  if (!withinRoot || withinRoot.startsWith("..") || isAbsolute(withinRoot)) {
+    throw new Error("Invalid upload path")
+  }
+  return candidate
 }
 
 // ── jobshot proxy helper ─────────────────────────────────────────────────────
 
 export function jotshotUrl(): string {
-  return process.env.API_JOBSHOT_URL ?? "http://jobshot:3000"
+  return internalServiceUrl(process.env.API_JOBSHOT_URL, "http://jobshot:3000", "jobshot")
 }
 
 export interface JobshotRunPayload {
@@ -231,7 +261,7 @@ async function pollActiveJobs(db: DB): Promise<void> {
         // H10: when a stooq import job succeeds, call the instruments post-import hook
         // to clean up superseded overflow rows and write latestDate/rowsDeleted back.
         if (newStatus === "Succeeded" && row.kind === "stooq_import" && row.param) {
-          const instrBase = (process.env.API_INSTRUMENTS_URL ?? "").replace(/\/$/, "")
+          const instrBase = internalServiceUrl(process.env.API_INSTRUMENTS_URL, "", "instruments")
           if (instrBase) {
             fetch(`${instrBase}/internal/stooq-imported`, {
               method: "POST",
@@ -501,6 +531,9 @@ export function registerJobsRoutes(admin: Hono) {
     }
     if (!uploadId || typeof uploadId !== "string") {
       return c.json({ error: "uploadId is required" }, 400)
+    }
+    if (!UPLOAD_ID_PATTERN.test(uploadId)) {
+      return c.json({ error: "uploadId must be a UUID" }, 400)
     }
 
     // Verify the file exists on the PVC

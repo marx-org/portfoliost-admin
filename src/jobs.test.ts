@@ -129,11 +129,21 @@ describe("Stooq import jobs API (N)", () => {
       const res = await app.request("/api/admin/jobs/stooq-import/run", {
         method: "POST",
         headers: { ...adminHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({ dataset: "daily_us", uploadId: "nonexistent-uuid" }),
+        body: JSON.stringify({ dataset: "daily_us", uploadId: "00000000-0000-0000-0000-000000000000" }),
       })
       expect(res.status).toBe(404)
       const body = await res.json()
       expect(body.error).toContain("Upload not found")
+    })
+
+    it("rejects upload ids that could escape the upload directory", async () => {
+      const res = await app.request("/api/admin/jobs/stooq-import/run", {
+        method: "POST",
+        headers: { ...adminHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ dataset: "daily_us", uploadId: "../../outside" }),
+      })
+      expect(res.status).toBe(400)
+      expect(await res.json()).toEqual({ error: "uploadId must be a UUID" })
     })
 
     it("triggers jobshot and returns Running status", async () => {

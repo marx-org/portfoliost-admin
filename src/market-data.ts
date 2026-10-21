@@ -9,6 +9,7 @@
 import { Hono } from "hono"
 import { sql } from "drizzle-orm"
 import type { DB } from "./db/index.js"
+import { internalServiceUrl } from "./internal-url.js"
 
 let _db: DB | null = null
 
@@ -59,7 +60,7 @@ type SplitAdjustmentResult =
   | { portfolioAdjustmentFailed: true; error: string }
 
 async function applyWalletSplit(symbol: string, quantityFactor: number, effectiveDate: string): Promise<SplitAdjustmentResult> {
-  const walletsUrl = process.env.API_WALLETS_URL
+  const walletsUrl = internalServiceUrl(process.env.API_WALLETS_URL, "", "wallets")
   if (!walletsUrl) {
     console.error("[market-data] apply-split: API_WALLETS_URL not configured")
     return { portfolioAdjustmentFailed: true, error: "API_WALLETS_URL not configured" }
