@@ -399,7 +399,7 @@ function streamUploadToDisk(
     bb.on("file", (_fieldname, fileStream, info) => {
       fileReceived = true
       const { filename } = info
-      if (!filename.toLowerCase().endsWith(".zip")) {
+      if (!filename || !filename.toLowerCase().endsWith(".zip")) {
         fileStream.resume() // drain the stream
         return settle(() => reject(new Error("File must be a .zip archive")))
       }
