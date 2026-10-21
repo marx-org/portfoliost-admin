@@ -1,3 +1,5 @@
+import { internalServiceUrl, type InternalService } from "./internal-url.js"
+
 export interface ServiceTarget {
   name: string
   url: string
@@ -14,14 +16,21 @@ export interface ServiceMeta {
 // API service deployments in the portfoliost set that answer /__meta, plus
 // the admin's own module. `name` is the deployment name / topology node id.
 export function serviceTargets(): ServiceTarget[] {
+  const configured = [
+    { name: "portfoliost-users-auth", value: process.env.API_USERS_AUTH_URL, service: "users-auth" as const },
+    { name: "portfoliost-wallets", value: process.env.API_WALLETS_URL, service: "wallets" as const },
+    { name: "portfoliost-instruments", value: process.env.API_INSTRUMENTS_URL, service: "instruments" as const },
+    { name: "openst", value: process.env.API_OPENST_URL, service: "openst" as const },
+    { name: "cachest", value: process.env.API_CACHEST_URL, service: "cachest" as const },
+  ] satisfies Array<{ name: string; value: string | undefined; service: InternalService }>
+
   return [
-    { name: "portfoliost-admin", url: `http://localhost:${process.env.PORT ?? 3000}` },
-    { name: "portfoliost-users-auth", url: process.env.API_USERS_AUTH_URL ?? "" },
-    { name: "portfoliost-wallets", url: process.env.API_WALLETS_URL ?? "" },
-    { name: "portfoliost-instruments", url: process.env.API_INSTRUMENTS_URL ?? "" },
-    { name: "openst", url: process.env.API_OPENST_URL ?? "" },
-    { name: "cachest", url: process.env.API_CACHEST_URL ?? "" },
-  ].filter((s) => s.url)
+    { name: "portfoliost-admin", url: "http://localhost:3000" },
+    ...configured.flatMap(({ name, value, service }) => {
+      const url = internalServiceUrl(value, "", service)
+      return url ? [{ name, url }] : []
+    }),
+  ]
 }
 
 // Fan out /__meta to every configured service. A service that does not

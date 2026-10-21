@@ -14,6 +14,7 @@ import { registerListingOverrideRoutes, setListingOverridesDb } from "./listing-
 import { probeServiceMetas } from "./service-probe.js"
 import { listJobVersions, listServiceImages } from "./jobs-version.js"
 import { metricsRouteHandler } from "./instrumentation.js"
+import { internalServiceUrl } from "./internal-url.js"
 import type { components } from "./generated/api-types"
 
 type AdminUser = components["schemas"]["AdminUser"]
@@ -99,7 +100,7 @@ admin.get("/system/versions", async (c) => {
 
 // D47 — proxy to instruments admin FX rates (§48: fx_rates moved to instruments)
 admin.get("/currencies/rates", async (c) => {
-  const instrumentsUrl = process.env.API_INSTRUMENTS_URL
+  const instrumentsUrl = internalServiceUrl(process.env.API_INSTRUMENTS_URL, "", "instruments")
   if (!instrumentsUrl) return c.json({ items: [], pagination: { total: 0, page: 1, per_page: 50, total_pages: 0 } })
 
   const params = new URLSearchParams()
@@ -129,7 +130,8 @@ admin.get("/currencies/rates", async (c) => {
 })
 
 // D48b — users: call users-auth + enrich with OIDC UserInfo
-admin.get("/users", async (c) => {  const usersAuthUrl = process.env.API_USERS_AUTH_URL
+admin.get("/users", async (c) => {
+  const usersAuthUrl = internalServiceUrl(process.env.API_USERS_AUTH_URL, "", "users-auth")
   if (!usersAuthUrl) {
     const empty: AdminUserListResponse = {
       items: [],
@@ -196,7 +198,7 @@ interface PocketIdIdentity {
 
 async function fetchPocketIdUsers(): Promise<Map<string, PocketIdIdentity>> {
   const map = new Map<string, PocketIdIdentity>()
-  const baseUrl = process.env.POCKETID_BASE_URL
+  const baseUrl = internalServiceUrl(process.env.POCKETID_BASE_URL, "", "pocket-id")
   const apiKey = process.env.POCKETID_ADMIN_API_KEY
   if (!baseUrl || !apiKey) return map
 
