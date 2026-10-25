@@ -12,7 +12,7 @@ vi.mock("./jobs-version.js", () => ({
       impl: "job",
       schedule: "10 17 * * *",
     },
-    { name: "jobshot", version: "ghcr.io/marx2/jobshot:1.6.1", impl: "job" },
+    { name: "jobshot", version: "ghcr.io/marx2/jobshot:1.6.1", impl: "real" },
   ]),
   listServiceImages: vi.fn(async () => [
     { name: "portfoliost-admin", image: "ghcr.io/marx2/portfoliost-admin:v1.0.36" },
@@ -304,7 +304,6 @@ describe("Admin API authorization (D50)", () => {
       )
       expect(jobs.map((j) => j.service)).toEqual([
         "portfoliost-instruments-fxsync",
-        "jobshot",
         "portfoliost-sheets-sync",
         "portfoliost-cash-audit",
       ])
@@ -313,7 +312,11 @@ describe("Admin API authorization (D50)", () => {
       // carries neither schedule nor suspended.
       expect(jobs[0].schedule).toBe("10 17 * * *")
       expect(jobs[0].suspended).toBeUndefined()
-      expect(jobs[1].schedule).toBeUndefined()
+      const jobshot = (body.services as { service: string; impl: string; schedule?: string }[]).find(
+        (s) => s.service === "jobshot",
+      )
+      expect(jobshot).toMatchObject({ service: "jobshot", impl: "real" })
+      expect(jobshot?.schedule).toBeUndefined()
     } finally {
       globalThis.fetch = origFetch
     }

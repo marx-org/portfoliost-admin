@@ -132,6 +132,17 @@ describe("listJobVersions", () => {
     expect(rows[1].suspended).toBeUndefined()
   })
 
+  it("reports jobshot as a service rather than a scheduled job", async () => {
+    readNamespacedDeployment.mockResolvedValue({
+      spec: { template: { spec: { containers: [{ image: "ghcr.io/marx2/jobshot:v1.6.1" }] } } },
+    } as never)
+
+    const { listJobVersions } = await load()
+    expect(await listJobVersions()).toEqual([
+      { name: "jobshot", version: "ghcr.io/marx2/jobshot:v1.6.1", impl: "real" },
+    ])
+  })
+
   it("returns nothing outside a cluster", async () => {
     delete process.env.KUBERNETES_SERVICE_HOST
     const { listJobVersions } = await load()
