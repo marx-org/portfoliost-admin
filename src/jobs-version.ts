@@ -3,7 +3,7 @@ import { KubeConfig, BatchV1Api, AppsV1Api } from "@kubernetes/client-node"
 export interface JobVersion {
   name: string
   version: string
-  impl: "job"
+  impl: "job" | "real"
   /** cron expression as declared by the CronJob manifest (absent for non-CronJob jobs) */
   schedule?: string
   /** true when the CronJob is suspended — it renders as ordinary work otherwise (§80.1) */
@@ -17,9 +17,10 @@ export interface DeploymentImage {
 
 const NAMESPACE = process.env.K8S_NAMESPACE ?? "pfire"
 
-// Job containers that are part of the portfoliost set but run on their own
-// schedule (CronJobs or a long-running runner) rather than as API services.
-// Their "version" is the image ref currently pinned by Flux.
+// CronJob containers that are part of the portfoliost set but run on their own
+// schedule rather than as API services. Their "version" is the image ref
+// currently pinned by Flux. The jobshot Deployment is appended below as a real
+// service because it runs jobs; it is not itself a scheduled job.
 //
 // This list is hardcoded because the pfire namespace is shared: a discovered
 // list would include pgdb, the CrunchyData pgBackRest jobs, scanst, stooq and
@@ -121,7 +122,7 @@ export async function listJobVersions(): Promise<JobVersion[]> {
   try {
     const deploy = await kc.makeApiClient(AppsV1Api).readNamespacedDeployment({ name: "jobshot", namespace: NAMESPACE })
     const image = deploy.spec?.template?.spec?.containers?.[0]?.image
-    if (image) results.push({ name: "jobshot", version: image, impl: "job" })
+    if (image) results.push({ name: "jobshot", version: image, impl: "real" })
   } catch {
     // no RBAC for deployments -> degrade silently
   }
