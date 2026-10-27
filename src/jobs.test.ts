@@ -152,7 +152,8 @@ describe("Stooq import jobs API (N)", () => {
       writeFileSync(join(uploadDir, `daily_pl-${uploadId}.zip`), "fake zip")
 
       const seen: string[] = []
-      globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const runPayloads: Record<string, unknown>[] = []
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === "string" ? input : (input as Request).url
         seen.push(url)
         if (url.includes("/api/job-status/")) {
@@ -162,6 +163,7 @@ describe("Stooq import jobs API (N)", () => {
           )
         }
         if (url.includes("/api/run-job")) {
+          runPayloads.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
           return new Response(
             JSON.stringify({ message: "Job started", jobName: "stooq-importer-daily-pl", namespace: "pfire" }),
             { headers: { "content-type": "application/json" } },
@@ -182,6 +184,14 @@ describe("Stooq import jobs API (N)", () => {
       expect(body.status).toBe("Running")
       // Verifies jobshot run-job was called
       expect(seen.some((u) => u.includes("/api/run-job"))).toBe(true)
+      expect(runPayloads).toHaveLength(1)
+      expect(runPayloads[0]).toMatchObject({
+        volumes: [{
+          name: "stooq-upload",
+          persistentVolumeClaim: { claimName: "nfs-pfire-stooq-rw-pvc" },
+        }],
+      })
+      expect(runPayloads[0].nodeSelector).toEqual({})
     })
 
     it("returns 409 when job is already running", async () => {

@@ -383,15 +383,14 @@ echo "Import of ${table} complete."`
     secretName: "postgres-pfire-pguser-postgres",
     volumes: [{
       name: "stooq-upload",
-      persistentVolumeClaim: { claimName: "stooq-upload-pvc" },
+      persistentVolumeClaim: { claimName: "nfs-pfire-stooq-rw-pvc" },
     }],
     volumeMounts: [{
       name:      "stooq-upload",
       mountPath: "/tmp/stooq-uploads",
     }],
-    // Pin to kaczka — largest free SSD (~122 GB), same node as the
-    // hostPath PV so the zip is always readable by the pgloader pod.
-    nodeSelector: { "kubernetes.io/hostname": "kaczka" },
+    // Jobshot requires this field; an empty selector leaves node placement to Kubernetes.
+    nodeSelector: {},
     resources: {
       requests: { cpu: "500m",  memory: "1Gi" },
       limits:   { cpu: "2000m", memory: "4Gi" },
