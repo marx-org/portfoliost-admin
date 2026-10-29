@@ -37,7 +37,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.10",
-    "@marx-org/contracts": "^1.6.77",
+    "@marx-org/contracts": "^1.6.81",
     "@opentelemetry/api": "^1.9.1",
     "@types/node": "^26.6.5",
     "drizzle-kit": "^0.31.11",
